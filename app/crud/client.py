@@ -19,7 +19,7 @@ async def create_oauth_client(db:Session,client:OAuthClientCreate):
     db_client = OAuthClient(
         client_id=client.client_id,
         client_secret=client.client_secret,
-        redirect_uri=client.redirect_uri,
+        redirect_url=client.redirect_url,
     )
     
     # Add and commit the new client to the database asynchronously

@@ -5,9 +5,7 @@ from app.schemas.client import OAuthClientCreate
 from app.crud.client import create_oauth_client
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.models import APIResponse
-
-
+from app.core.response import ResponseHandler,APIResponse
 router = APIRouter(
     prefix="/clients",  # Optional: Define a prefix for all client routes
     tags=["Clients"],   # Optional: Add a tag for better documentation grouping
@@ -20,35 +18,20 @@ async def register_oauth_client(client:OAuthClientCreate, db: AsyncSession  = De
         try:
             db_client= await create_oauth_client(db=db,client=client)
             print('db_client',db_client)
-            response = APIResponse(
-                success=True,
+            
+            return ResponseHandler.success(
                 message="Client registered successfully",
                 data=[{
-                    "client_id": db_client.client_id,
-                    "client_secret": db_client.client_secret,
-                    "redirect_url": db_client.redirect_url
-                }],
-                error={}  # No error in this case
+                "client_id": db_client.client_id,
+                "client_secret": db_client.client_secret,
+                "redirect_url": db_client.redirect_url
+                }]
             )
-            return response
 
         except Exception as e:
-            # If an error occurs, return a failed response with the error message
-            return APIResponse(
-                success=False,
+             # Handle any unexpected errors
+            return ResponseHandler.error(
                 message="Client registration failed",
-                data=[],
-                error={"detail": str(e)}  # Include the error message
+                error_details={"detail": str(e)}
             )
-        # db_client = create_oauth_client(db, client)
-        # # print('ffff',db_client)
-        # if db_client:
-        #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-        # return {}
-
-# @router.get("/clients/{client_id}", response_model=schemas.Client)
-# def read_client(client_id: int, db: Session = Depends(get_db)):
-#     db_client = crud.get_client(db, client_id=client_id)
-#     if db_client is None:
-#         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
-#     return db_client
+        

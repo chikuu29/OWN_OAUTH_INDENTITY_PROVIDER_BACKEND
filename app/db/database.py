@@ -1,6 +1,6 @@
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+
+# from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker,DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 DATABASE_URL = "postgresql+asyncpg://user:password@localhost/indentity_provider_datbase"
@@ -13,8 +13,9 @@ SessionLocal = sessionmaker(
     )
 
 # Define base for models
-Base = declarative_base()
-
+# ✅ Correct way to define Base
+class Base(DeclarativeBase):
+    pass
 
 async def get_db():
     async with SessionLocal() as session:

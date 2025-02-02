@@ -1,7 +1,7 @@
 
 
-
-from sqlalchemy import Column, Integer, String, func
+#app/models/client.py
+from sqlalchemy import Column, Integer, String
 from app.db.database import Base
 
 

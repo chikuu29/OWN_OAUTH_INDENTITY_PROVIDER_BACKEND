@@ -11,4 +11,5 @@ uvicorn main:app --reload
 fastapi dev .\app\main.py      
 
 
+alembic revision --autogenerate -m "Initial migration"
 
