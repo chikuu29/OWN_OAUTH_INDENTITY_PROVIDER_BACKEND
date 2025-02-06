@@ -31,7 +31,7 @@ async def register_oauth_client(client:OAuthClientCreate, db: AsyncSession  = De
         except Exception as e:
              # Handle any unexpected errors
             return ResponseHandler.error(
-                message="Client registration failed",
+                message="Tenant registration Unsuccessfull",
                 error_details={"detail": str(e)}
             )
         
