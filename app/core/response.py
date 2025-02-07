@@ -135,15 +135,25 @@ class ResponseHandler:
         # Check for validation errors
         if isinstance(exc, RequestValidationError):
             # Extract details from the validation exception
-            errors = {str(error["loc"]): {"type": error["type"], "msg": error["msg"]} for error in exc.errors()} 
-            if errors is None:
-                errors = {}
+            # print('==erors',exc.errors())
+           
+            # errors = {str(error["loc"]): {"type": error["type"], "msg": error["msg"]} for error in exc.errors()} 
+            formatError={}
+            for error in exc.errors():
+                # print(error)
+                _,field=error['loc']
+                if _ not in formatError:
+                    formatError[_]={}
+                formatError[_][field] ={key:error[key] for key in error if key!='loc'}
+
+            if formatError is None:
+                formatError = {}
 
             response_data = APIResponse(
                         success=False,
-                         message="message",
+                         message="Validation Errors",
                         #  data=None,
-                         error=errors,
+                         error=formatError,
             )
             return JSONResponse(content=response_data.dict(), status_code=status.HTTP_400_BAD_REQUEST)
 
