@@ -5,22 +5,54 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.schemas.tanent import TenantCreate 
 # from app.crud.client import create_oauth_client
-from app.controllers.account_controller import create_tenant
+from app.controllers.account_controller import create_tenant,register_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import ResponseHandler,APIResponse
 from app.models.tenant import Tenant
+from app.schemas.auth_schemas import UserRegisterSchema
 
 
-from sqlalchemy.orm import class_mapper
-
-def to_dict(obj):
-    return {c.key: getattr(obj, c.key) for c in class_mapper(obj.__class__).columns}
 
 router = APIRouter(
     prefix="/account",  # Optional: Define a prefix for all client routes
     tags=["account"],   # Optional: Add a tag for better documentation grouping
 )
+
+
+
+
+
+@router.post("/register/auth_user",response_model=APIResponse)
+async def register_authuser(user:UserRegisterSchema,db:AsyncSession=Depends(get_db)):
+    print("====CALLING REGISTER AUTH USER===")
+    try:
+        oparation=await register_user(db,user)
+        return ResponseHandler.success(
+                message="User registration successfull",
+                data=[{}]
+            )
+
+
+    
+
+    except Exception as e:
+             # Handle any unexpected errors
+            # print(type(e))
+            # print(e)
+            # error_dict = {"error": "Validation Error", "message": str(e)}
+            return ResponseHandler.error(
+                message="User registration Unsuccessfull",
+                error_details=e.args[0]
+            )
+            
+
+
+
+
+
+
+
 
 @router.post("/register/tenant/",response_model=APIResponse)
 async def register_tanets(client:TenantCreate, db: AsyncSession  = Depends(get_db)):
