@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.response import ResponseHandler,APIResponse
 from app.models.tenant import Tenant
 from app.schemas.auth_schemas import UserRegisterSchema
+from app.core.db_helpers import model_to_dict
 
 
 
@@ -27,10 +28,13 @@ router = APIRouter(
 async def register_authuser(user:UserRegisterSchema,db:AsyncSession=Depends(get_db)):
     print("====CALLING REGISTER AUTH USER===")
     try:
-        oparation=await register_user(db,user)
+        user_data=await register_user(db,user)
+
+        user_data = model_to_dict(user_data,exclude_fields=["hashed_password"])
+       
         return ResponseHandler.success(
-                message="User registration successfull",
-                data=[{}]
+                message="User registration successful",
+                data=[user_data]
             )
 
 
@@ -42,7 +46,7 @@ async def register_authuser(user:UserRegisterSchema,db:AsyncSession=Depends(get_
             # print(e)
             # error_dict = {"error": "Validation Error", "message": str(e)}
             return ResponseHandler.error(
-                message="User registration Unsuccessfull",
+                message="User registration failed",
                 error_details=e.args[0]
             )
             

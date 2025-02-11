@@ -14,8 +14,6 @@ class APIResponse(BaseModel):
 
 class ResponseHandler:
     
-    
-
 
     @staticmethod
     def success(message: str, data: List[dict] = None) -> JSONResponse:

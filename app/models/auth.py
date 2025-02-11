@@ -29,6 +29,7 @@ class UserProfile(Base):
 
 class User(Base):
     __tablename__ = "auth_users"
+    
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)

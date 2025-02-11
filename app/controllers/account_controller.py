@@ -9,7 +9,7 @@ from app.models.auth import User, UserProfile
 
 from passlib.context import CryptContext
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt"])
 
 
 async def create_tenant(db: Session, client: TenantCreate):

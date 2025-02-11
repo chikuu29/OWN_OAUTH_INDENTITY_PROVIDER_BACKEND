@@ -17,8 +17,7 @@
 import pkgutil
 import importlib
 import sys
-from sqlalchemy.ext.declarative import declarative_base
-from app.db.database import Base
+
 
 # Base = declarative_base()
 
@@ -26,7 +25,7 @@ from app.db.database import Base
 package_name = __name__
 
 for _, module_name, _ in pkgutil.iter_modules([__path__[0]]):
-    print(f"{package_name}.{module_name}")
+    # print(f"{package_name}.{module_name}")
     module = importlib.import_module(f"{package_name}.{module_name}")
     for attr in dir(module):
         obj = getattr(module, attr)
