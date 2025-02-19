@@ -1,6 +1,7 @@
 
 from datetime import timedelta, datetime
 from typing import Optional
+from fastapi import HTTPException
 from passlib.context import CryptContext
 import jwt
 from jwt import ExpiredSignatureError, InvalidTokenError
@@ -47,8 +48,7 @@ def verify_token(token: str, secret_key: str):
         payload = jwt.decode(token, secret_key, algorithms=["HS256"])
         return payload  # Returns the decoded token data
     except ExpiredSignatureError:
-        print("Token has expired")
-        return None  # Token expired
+        raise HTTPException(status_code=401, detail="Token has expired")
     except InvalidTokenError:
-        print("Invalid token")
-        return None  # Invalid token
+        raise HTTPException(status_code=401, detail="Invalid token")
+

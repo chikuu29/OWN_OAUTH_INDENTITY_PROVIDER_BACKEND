@@ -12,7 +12,7 @@ router = APIRouter(
     tags=["applications"],   # Optional: Add a tag for better documentation grouping
 )
 
-@router.post("/register",response_model=APIResponse)
+@router.post("/register")
 async def register_oauth_client(inputData:OAuthClientCreate, db: AsyncSession  = Depends(get_db)):
         print(f"==CALLING register_oauth_client====")
         print(f"Client",inputData)
@@ -22,6 +22,7 @@ async def register_oauth_client(inputData:OAuthClientCreate, db: AsyncSession  =
             
             return ResponseHandler.success(
                 message="Client registered successfully",
+                
                 data=[{
                 "client_id": db_client.client_id
                 }]

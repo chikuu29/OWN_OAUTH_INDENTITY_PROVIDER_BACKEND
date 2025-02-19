@@ -5,21 +5,25 @@ from typing import List, Optional
 from pydantic import BaseModel
 from fastapi import status  # To use HTTP status codes like 404, 403, etc.
 
+
 # Define the custom response model
 class APIResponse(BaseModel):
+    login_info: Optional[dict] = None
     success: bool
     message: str
-    data:  Optional[List[dict]] = None  # Can be an empty list or a list of clients
+    data: Optional[List[dict]] = None  # Can be an empty list or a list of clients
     error: Optional[dict] = None  # Optional error details, default is None
 
+
 class ResponseHandler:
-    
 
     @staticmethod
-    def success(message: str, data: List[dict] = None) -> JSONResponse:
+    def success(
+        message: str, data: List[dict] = None, login_info: Optional[dict] = None
+    ) -> JSONResponse:
         """
         Return a successful response.
-        
+
         Args:
             message (str): A success message.
             data (List[dict]): Data to be returned in the response.
@@ -30,22 +34,25 @@ class ResponseHandler:
         if data is None:
             data = []
         response_data = APIResponse(
+            login_info=login_info,
             success=True,
             message=message,
             data=data,
             error={},
         )
-        return JSONResponse(content=response_data.dict(), status_code=status.HTTP_200_OK)
+        return JSONResponse(
+            content=response_data.dict(), status_code=status.HTTP_200_OK
+        )
 
     @staticmethod
     def error(message: str, error_details: dict = None) -> JSONResponse:
         """
         Return an error response.
-        
+
         Args:
             message (str): Error message to be returned.
             error_details (dict): Additional details about the error.
-        
+
         Returns:
             JSONResponse: A FastAPI response object with error status.
         """
@@ -57,17 +64,23 @@ class ResponseHandler:
             data=[],
             error=error_details,
         )
-        return JSONResponse(content=response_data.dict(), status_code=status.HTTP_400_BAD_REQUEST)
+        return JSONResponse(
+            content=response_data.dict(), status_code=status.HTTP_400_BAD_REQUEST
+        )
 
     @staticmethod
-    def raise_http_error(message: str, error_details: dict = None, status_code: int = status.HTTP_400_BAD_REQUEST):
+    def raise_http_error(
+        message: str,
+        error_details: dict = None,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
+    ):
         """
         Raise an HTTP error (for non-200 status codes).
-        
+
         Args:
             message (str): Error message to be returned.
             error_details (dict): Additional details about the error.
-        
+
         Raises:
             HTTPException: Raises a custom HTTPException with a detailed error message.
         """
@@ -79,20 +92,17 @@ class ResponseHandler:
             data=[],
             error=error_details,
         )
-        raise HTTPException(
-            status_code=status_code,
-            detail=response_data.dict()
-        )
+        raise HTTPException(status_code=status_code, detail=response_data.dict())
 
     @staticmethod
     def not_found(message: str, error_details: dict = None) -> JSONResponse:
         """
         Handle a 'Not Found' error (HTTP 404).
-        
+
         Args:
             message (str): Error message to be returned.
             error_details (dict): Additional details about the error.
-        
+
         Returns:
             JSONResponse: A FastAPI response object with status 404 (Not Found).
         """
@@ -104,17 +114,19 @@ class ResponseHandler:
             data=[],
             error=error_details,
         )
-        return JSONResponse(content=response_data.dict(), status_code=status.HTTP_404_NOT_FOUND)
+        return JSONResponse(
+            content=response_data.dict(), status_code=status.HTTP_404_NOT_FOUND
+        )
 
     @staticmethod
     def forbidden(message: str, error_details: dict = None) -> JSONResponse:
         """
         Handle a 'Forbidden' error (HTTP 403).
-        
+
         Args:
             message (str): Error message to be returned.
             error_details (dict): Additional details about the error.
-        
+
         Returns:
             JSONResponse: A FastAPI response object with status 403 (Forbidden).
         """
@@ -126,42 +138,46 @@ class ResponseHandler:
             data=[],
             error=error_details,
         )
-        return JSONResponse(content=response_data.dict(), status_code=status.HTTP_403_FORBIDDEN)
+        return JSONResponse(
+            content=response_data.dict(), status_code=status.HTTP_403_FORBIDDEN
+        )
 
     @staticmethod
-    def handle_exception(request:Request, exc: Exception)->JSONResponse:
+    def handle_exception(request: Request, exc: Exception) -> JSONResponse:
         # Check for validation errors
         if isinstance(exc, RequestValidationError):
             # Extract details from the validation exception
-            # print('==erors',exc.errors())
-           
-            # errors = {str(error["loc"]): {"type": error["type"], "msg": error["msg"]} for error in exc.errors()} 
-            formatError={}
+            print('==erors',exc.errors())
+
+            # errors = {str(error["loc"]): {"type": error["type"], "msg": error["msg"]} for error in exc.errors()}
+            formatError = {}
             for error in exc.errors():
                 # print(error)
-                _,field=error['loc']
+                _, field = error["loc"]
                 if _ not in formatError:
-                    formatError[_]={}
-                formatError[_][field] ={key:error[key] for key in error if key!='loc'}
+                    formatError[_] = {}
+                formatError[_][field] = {
+                    key: error[key] for key in error if key != "loc"
+                }
 
             if formatError is None:
                 formatError = {}
 
             response_data = APIResponse(
-                        success=False,
-                         message="Validation Errors",
-                        #  data=None,
-                         error=formatError,
+                success=False,
+                message="Validation Errors",
+                #  data=None,
+                error=formatError,
             )
-            return JSONResponse(content=response_data.dict(), status_code=status.HTTP_400_BAD_REQUEST)
+            return JSONResponse(
+                content=response_data.dict(), status_code=status.HTTP_400_BAD_REQUEST
+            )
 
         # Handle other exceptions as a general internal server error
         else:
             response_data = APIResponse(
                 success=False,
                 message="Internal Server Error",
-                error={"detail": str(exc)}
+                error={"detail": str(exc)},
             )
             return JSONResponse(content=response_data.to_dict(), status_code=500)
-
-

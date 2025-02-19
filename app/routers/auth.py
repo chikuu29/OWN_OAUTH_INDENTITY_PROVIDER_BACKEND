@@ -18,6 +18,13 @@ router = APIRouter(
 )
 
 
+
+
+# Dependency to extract and verify the access token
+def get_current_user(access_token: str = Depends(oauth2_scheme)):
+    return verify_token(access_token,"REFRESH_SECRET_KEY")
+
+
 # 🚀 Login User & Get Tokens
 @router.post("/login", response_model=LoginResponse)
 async def login(
