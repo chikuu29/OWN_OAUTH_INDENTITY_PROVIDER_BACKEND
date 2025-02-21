@@ -1,4 +1,5 @@
 from typing import Annotated, Optional
+import uuid
 from fastapi import (
     APIRouter,
     Cookie,
@@ -35,39 +36,9 @@ router = APIRouter(
 )
 
 
-@router.post("/authorize")
-async def authorize(request: Request):
-    # Read form data from request
-    form_data = await request.form()
-
-    client_id = form_data.get("client_id")
-    redirect_url = form_data.get("redirect_url")  # Fixed variable name
-    response_type = form_data.get("response_type")
-    scope = form_data.get("scope")
-    state = form_data.get("state")
-
-    # Validate required parameters
-    if not all([client_id, redirect_url, response_type, scope]):
-        raise HTTPException(
-            status_code=400, detail="Missing required OAuth parameters."
-        )
-
-    if response_type != "code":
-        raise HTTPException(
-            status_code=400, detail="Invalid response_type. Must be 'code'."
-        )
-
-    # Generate a fake authorization code
-    auth_code = secrets.token_urlsafe(16)
-
-    # Construct the redirect URL with the authorization code
-    redirect_url = f"{redirect_url}?code={auth_code}"
-    if state:
-        redirect_url += f"&state={state}"
-
-    # Perform the redirection
-    return RedirectResponse(url=redirect_url)
-
+# -------------------------
+# Authorization Endpoint
+# -------------------------
 
 @router.get("/authorize", response_model=APIResponse)
 async def authorize(
@@ -87,16 +58,36 @@ async def authorize(
             **{"login_user": current_user},
         }
         print("OAUTH_FLOW_USER_CONSENT_STORAGE", OAUTH_FLOW_USER_CONSENT_STORAGE)
-        return ResponseHandler.success(
-            message="Authorization successful",
-            data=[validateClient],
-            login_info=current_user,
-        )
+
+        if validateClient.get("skip_authorization") is True:
+
+            return ResponseHandler.success(
+                message="Authorization successful",
+                data=[
+                    {
+                        **issue_auth_code(
+                            client_id=validateClient.get("client_id"),
+                            redirect_url=OauthRequest.redirect_url,
+                        ),
+                        **{"skip_authorization_done": True},
+                    }
+                ],
+                login_info=current_user,
+            )
+        else:
+            return ResponseHandler.success(
+                message="Authorization successful",
+                data=[validateClient],
+                login_info=current_user,
+            )
 
     except Exception as e:
 
         return ResponseHandler.error(message=str(e), error_details={"detail": str(e)})
 
+# -------------------------
+# Consent Decision Endpoint
+# -------------------------
 
 @router.post("/grant")
 async def grant_access(
@@ -109,7 +100,7 @@ async def grant_access(
 ):
     """Process Allow/Deny response from the frontend."""
     if response_type != "code":
-       return RedirectResponse(f"{redirect_url}?error=invalid_response_type")
+        return RedirectResponse(f"{redirect_url}?error=invalid_response_type")
 
     print(OAUTH_FLOW_USER_CONSENT_STORAGE)
 
@@ -127,7 +118,7 @@ async def grant_access(
         if datetime.utcnow() < indenity["expires_at"]:
             if action == "allow":
                 auth_code, expires_at = generate_auth_code()
-                  # Securely generate this in real scenarios
+                # Securely generate this in real scenarios
                 OAUTH_FLOW_USER_CONSENT_STORAGE[client_id]["auth_code"] = {
                     "auth_code": auth_code,
                     "expires_at": expires_at,
@@ -144,4 +135,44 @@ async def grant_access(
             del OAUTH_FLOW_USER_CONSENT_STORAGE[client_id]
             return RedirectResponse(f"{redirect_url}?error=timeout")
     else:
-        return RedirectResponse(f"{redirect_url}?error=indenity_not_found{extra_params}")
+        return RedirectResponse(
+            f"{redirect_url}?error=indenity_not_found{extra_params}"
+        )
+
+
+# -------------------------
+# Helper to Issue Auth Code
+# -------------------------
+def issue_auth_code(client_id, redirect_url):
+
+    auth_code, expires_at = generate_auth_code()
+    # Securely generate this in real scenarios
+    OAUTH_FLOW_USER_CONSENT_STORAGE[client_id]["auth_code"] = {
+        "auth_code": auth_code,
+        "expires_at": expires_at,
+    }
+
+    return {"redirect_url": f"{redirect_url}?code={auth_code}", "code": auth_code}
+
+
+# -------------------------
+# Token Exchange
+# -------------------------
+@router.post("/token")
+def token(grant_type: str = Form(...), code: str = Form(...), client_id: str = Form(...)):
+    if grant_type != "authorization_code":
+        raise HTTPException(status_code=400, detail="Unsupported grant_type")
+
+    # auth_code_data = auth_codes.pop(code, None)
+    # if not auth_code_data or auth_code_data["client_id"] != client_id:
+    #     raise HTTPException(status_code=400, detail="Invalid authorization code")
+
+    access_token = str(uuid.uuid4())
+    id_token = str(uuid.uuid4())
+
+    return {
+        "access_token": access_token,
+        "id_token": id_token,
+        "token_type": "Bearer",
+        "expires_in": 3600
+    }

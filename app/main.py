@@ -10,7 +10,16 @@ from app.core.response import ResponseHandler
 from app.middlewares.loggerMiddleware import LoggerMiddleware
 from typing import Union
 from fastapi.middleware.cors import CORSMiddleware
+from app import config
 app=FastAPI()
+
+# from dotenv import load_dotenv
+# import os 
+# load_dotenv()
+# print(f"DATABASE_URL",os.getenv('DATABASE_URL'))
+
+
+
 origins = [
     "http://localhost:5173",  # React frontend
     "http://127.0.0.1:5173",

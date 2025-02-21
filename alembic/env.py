@@ -6,13 +6,17 @@ from sqlalchemy.orm import sessionmaker
 from alembic import context
 
 
+
 from app.db.database import Base  # Import Base from database.py
 from app.models import *  # Import all models
+from app.config import DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-
+# DATABASE_URL=os.getenv('DATABASE_URL')
+# print("DATABASE_URL",DATABASE_URL)
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
@@ -32,7 +36,7 @@ target_metadata = Base.metadata
 
 
 # Get database URL from alembic.ini
-DATABASE_URL = config.get_main_option("sqlalchemy.url")
+# DATABASE_URL = config.get_main_option("sqlalchemy.url")
 
 
 def run_migrations_offline() -> None:

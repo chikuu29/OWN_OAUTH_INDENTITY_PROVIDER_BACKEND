@@ -2,8 +2,13 @@
 # from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker,DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+import os
+from app.config import DATABASE_URL
+# load_dotenv()
 
-DATABASE_URL = "postgresql+asyncpg://postgres:password@localhost/identity_provider_database"
+# DATABASE_URL = "postgresql+asyncpg://postgres:password@localhost/identity_provider_database"
+# DATABASE_URL=os.getenv('DATABASE_URL')
+
 
 engine = create_async_engine(DATABASE_URL, echo=True)
 SessionLocal = sessionmaker(
