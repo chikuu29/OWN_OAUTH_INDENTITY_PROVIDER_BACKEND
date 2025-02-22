@@ -12,3 +12,4 @@ load_dotenv(f'.env.{env}')
 print("DATABASE_URL:", os.getenv('DATABASE_URL'))
 DATABASE_URL = os.getenv("DATABASE_URL")
 DB_URL = os.getenv("DB_URL")
+ENV=env
