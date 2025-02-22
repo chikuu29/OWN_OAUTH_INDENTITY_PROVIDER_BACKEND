@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlmodel import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import verify_password
+from app.core.osecurity import verify_password
 from app.models.auth import User
 from sqlalchemy.orm import selectinload
 

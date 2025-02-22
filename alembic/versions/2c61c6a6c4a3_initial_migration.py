@@ -1,8 +1,8 @@
 """Initial migration
 
-Revision ID: eb0c60a6697c
+Revision ID: 2c61c6a6c4a3
 Revises: 
-Create Date: 2025-02-18 20:13:51.060315
+Create Date: 2025-02-22 16:05:16.136158
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'eb0c60a6697c'
+revision: str = '2c61c6a6c4a3'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -39,10 +39,12 @@ def upgrade() -> None:
     sa.Column('client_name', sa.String(), nullable=False),
     sa.Column('client_id', sa.String(), nullable=True),
     sa.Column('client_secret', sa.String(), nullable=False),
+    sa.Column('hash_client_secret', sa.String(), nullable=False),
     sa.Column('client_type', sa.String(), nullable=False),
     sa.Column('authorization_grant_types', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('redirect_uris', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-    sa.Column('post_logout_redirect_uris', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('redirect_urls', postgresql.JSONB(astext_type=sa.Text()), nullable=False),
+    sa.Column('post_logout_redirect_urls', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+    sa.Column('skip_authorization', sa.Boolean(), nullable=True),
     sa.Column('allowed_origins', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('token_endpoint_auth_method', sa.String(), nullable=False),
     sa.Column('scope', postgresql.JSONB(astext_type=sa.Text()), nullable=False),

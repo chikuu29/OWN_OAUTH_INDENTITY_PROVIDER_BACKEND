@@ -15,7 +15,7 @@ class OAuthClient(Base):
     client_name = Column(String, nullable=False)  # Updated from 'name'
     client_id = Column(String, unique=True, index=True)
     client_secret = Column(String, nullable=False)
-    hash_client_secret = Column(String, nullable=True)  
+    hash_client_secret = Column(String, nullable=False)  
     client_type = Column(String, nullable=False)  
     authorization_grant_types = Column(JSONB, nullable=False)  # Changed to JSONB list
     redirect_urls = Column(JSONB, nullable=False)  # Changed to JSONB
@@ -30,6 +30,12 @@ class OAuthClient(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     @validates("client_secret")
-    def hash_client_secret(self, key, value):
+    def validate_and_hash_client_secret(self, key, value):
         """Hash client_secret before storing it."""
-        return pwd_context.hash(value)
+
+        self.hash_client_secret = pwd_context.hash(value)
+        return value  # Keep the plain client_secret for temporary use if needed
+    
+    def verify_client_secret(self, plain_secret: str) -> bool:
+        """Verify provided client_secret against hashed version."""
+        return pwd_context.verify(plain_secret, self.hash_client_secret)

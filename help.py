@@ -1,73 +1,38 @@
-import csv
-import json
+import jwt
 import requests
-from datetime import datetime
-# api_url="https://patara.choicemarriage.com/backend-api/public/api-call-for-all-data"
-def csv_to_json(csv_file_path, json_file_path):
-    data = []
+from jwt import PyJWKClient
 
-    # Open and read the CSV file
-    with open(csv_file_path, mode='r', encoding='utf-8') as csv_file:
-        csv_reader = csv.DictReader(csv_file)  # Reads CSV into a dictionary
-        # print(csv_reader)
-        for row in csv_reader:
-            # row['phone']=row['phone'].lstrip("-")
-            # print(row['dob'])
-            # Convert to datetime object
-            # Example input (replace with actual data)
-            # date_str = row["dob"]  # Make sure this is not empty
-            # row['user_subcaste']="Patara"
+def verify_jwt(token):
+    """Verify JWT using public key from JWKS endpoint."""
 
-            # if date_str.strip():  # Check if the string is not empty
-            #     try:
-            #         # Convert to datetime object
-            #         date_obj = datetime.strptime(date_str, "%d-%m-%Y")
-                    
-            #         # Convert back to desired format
-            #         formatted_date = date_obj.strftime("%Y-%m-%d")
-            #         # print("Converted Date:", formatted_date)
-            #         row['dob']=formatted_date
-                
-            #     except ValueError as e:
-            #         print("Error: Invalid date format -", e)
-            # else:
-            #     print("Error: Date string is empty")
-           
-            # try:
-            #     response = requests.post(api_url, json=row)
-            #     if response.status_code in [200, 201]:
-            #         # print(f"Success: {response.json()}")
-            #         row['apiOperationStatus']=True
-            #         row['apiOperationresposce']=response.json()
-            #     else:
-            #         row['apiOperationStatus']=False
-            #         row['apiOperationresposce']=response.json()
-            #         # print(f"Failed to send data: {response.status_code}, {response.text}")
-            # except requests.exceptions.RequestException as e:
-            #     row['apiOperationStatus']=False
-            #     row['apiOperationresposce']=str(e)
-            
-            # response=requests.get('https://patara.choicemarriage.com/backend-api/public/setting')
+    jwks_url = "http://localhost:8000/.well-known/jwks.json"
 
-            # row['apiOperationresposce']="ok"
-            data.append(row)
+    try:
+        # Fetch JWK from the endpoint
+        jwk_client = PyJWKClient(jwks_url)
+        print(jwk_client)
+        signing_key = jwk_client.get_signing_key_from_jwt(token)
+        print(jwk_client)
+        print(signing_key.key)
+        # Verify JWT
+        decoded = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"]
+        )
 
-    # Write the JSON data into a file
-    with open(json_file_path, mode='w', encoding='utf-8') as json_file:
-        json.dump(data, json_file, indent=4)
+        print("JWT is valid! Payload:", decoded)
+        return decoded
 
-    return data
-
-# Example usageC:\Users\Surayanarayan\Downloads
-csv_file = "C:Users/Surayanarayan/Downloads/user_education_occupations.xlsx"
-json_file = 'user_education_occupations.json'  # Change this to your JSON file path
-json_data = csv_to_json(csv_file, json_file)
-
-# print(json.dumps(json_data, indent=4))  # Print JSON array
-# import requests
+    except jwt.ExpiredSignatureError:
+        print("Token has expired.")
+    except jwt.InvalidTokenError as e:
+        print(f"Invalid token: {e}")
 
 
-# response=requests.get('https://patara.choicemarriage.com/backend-api/public/setting')
-
-
-# print(response.json())
+# Example usage:
+if __name__ == "__main__":
+    # Use the JWT generated earlier
+    jwt_token = "YOUR_GENERATED_JWT_HERE"
+    jwt_token="eyJhbGciOiJSUzI1NiIsImtpZCI6Ik9BVVRIX1VOSVFVRV9LRVkiLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJwYXlsb2FkLmdldCgnc3ViJykiLCJjbGllbnRfaWQiOiJjbGllbnRfaWQiLCJzY29wZSI6WyJvcGVuaWQiLCJwcm9maWxlIiwiZW1haWwiXSwiaWF0IjoxNzQwMjIyNDE1Ljk4MTAxOCwiZXhwIjoxNzUzMTgyNDE1Ljk4MTAxOCwidG9rZW5fdHlwZSI6ImFjY2Vzc190b2tlbiJ9.ORrRUvmxfBDyAWohCkEseh7MRq_r0IEaqRFKxaF1InC14JkFk-35kTtrzurwWPZLaypkwm9gTIQ-RQt3O82vFKBy-b2wVh3vjyMmrAHz0ldeLVW-TAhr6wrpNaKtInXrHfNx7NC--G7X8IB3YfUAetW3-z0p3T3BcEFEghejLN56gLhslQWe9I1MEsaUGA7OJuTvPiHUkUgGT64ZaduhEgFOhmfNrsUIz0pDqgOV-vD8kAcKvzgragRRVL1_KmntKp2zzsB5Y1yydbdJlPi-unIQc83NaWSL_VgGBEqXn5yhTGqJEAUX8aLhNzeKjHPxbyfUC-nUkCaioOoWDISR8Q"
+    verify_jwt(jwt_token)

@@ -17,3 +17,29 @@ class OauthRequest(BaseModel):
     scope: str
     state: Optional[str] = None
     device_id: str
+
+
+class TokenRequest(BaseModel):
+    grant_type: str  # OAuth2 grant type (authorization_code, refresh_token, password)
+    code: Optional[str] = None  # For authorization_code flow
+    refresh_token: Optional[str] = None  # For refresh_token flow
+    username: Optional[str] = None  # For password grant type
+    password: Optional[str] = None  # For password grant type
+    client_id: str  # Client ID issued by the authorization server
+    client_secret: str  # Client Secret issued by the authorization server
+    device_id:str
+
+
+
+
+
+class TokenResponse(BaseModel):
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    id_token: Optional[str] = None
+    authProvider: Optional[str] = None
+    login_info: Optional[Dict] = None
+    success: bool
+    message: str
+    errors: Optional[Dict] = None  # Optional to handle cases with no errors
+   

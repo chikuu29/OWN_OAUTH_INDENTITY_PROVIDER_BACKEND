@@ -11,21 +11,31 @@ from fastapi import (
     HTTPException,
     status,
 )
+
 from fastapi.responses import JSONResponse, RedirectResponse
 import secrets
 
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+from app.controllers.application_controller import validate_client
 from app.controllers.oauth_controller import validateClientDetails
 from app.core.response import APIResponse, ResponseHandler
-from app.core.security import generate_auth_code
+# from app.core.security import generate_auth_code
+from app.core.security.oauth_token_service import generate_oauth_tokens, generate_auth_code
 from app.db.database import get_db
 from app.routers.auth import get_current_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.schemas.oauth_schemas import OauthRequest, OauthResponse
+from app.schemas.oauth_schemas import (
+    OauthRequest,
+    OauthResponse,
+    TokenRequest,
+    TokenResponse,
+)
 
 from datetime import datetime, timedelta
 
-
+security = HTTPBasic()
 # In-memory store for auto tokens (replace with DB)
 OAUTH_FLOW_USER_CONSENT_STORAGE = {}
 
@@ -39,6 +49,7 @@ router = APIRouter(
 # -------------------------
 # Authorization Endpoint
 # -------------------------
+
 
 @router.get("/authorize", response_model=APIResponse)
 async def authorize(
@@ -85,9 +96,11 @@ async def authorize(
 
         return ResponseHandler.error(message=str(e), error_details={"detail": str(e)})
 
+
 # -------------------------
 # Consent Decision Endpoint
 # -------------------------
+
 
 @router.post("/grant")
 async def grant_access(
@@ -104,7 +117,7 @@ async def grant_access(
 
     print(OAUTH_FLOW_USER_CONSENT_STORAGE)
 
-    indenity = (
+    identity = (
         OAUTH_FLOW_USER_CONSENT_STORAGE[client_id]
         if OAUTH_FLOW_USER_CONSENT_STORAGE[client_id] is not None
         else None
@@ -113,9 +126,9 @@ async def grant_access(
     if state:
         extra_params += f"&state={state}"
 
-    if indenity is not None:
-        print("====indentity found===", indenity)
-        if datetime.utcnow() < indenity["expires_at"]:
+    if identity is not None:
+        print("====indentity found===", identity)
+        if datetime.utcnow() < identity["expires_at"]:
             if action == "allow":
                 auth_code, expires_at = generate_auth_code()
                 # Securely generate this in real scenarios
@@ -136,7 +149,7 @@ async def grant_access(
             return RedirectResponse(f"{redirect_url}?error=timeout")
     else:
         return RedirectResponse(
-            f"{redirect_url}?error=indenity_not_found{extra_params}"
+            f"{redirect_url}?error=identity_not_found{extra_params}"
         )
 
 
@@ -158,21 +171,115 @@ def issue_auth_code(client_id, redirect_url):
 # -------------------------
 # Token Exchange
 # -------------------------
-@router.post("/token")
-def token(grant_type: str = Form(...), code: str = Form(...), client_id: str = Form(...)):
-    if grant_type != "authorization_code":
-        raise HTTPException(status_code=400, detail="Unsupported grant_type")
+@router.post("/token", response_model=TokenResponse)
+async def token_endpoint(request: TokenRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Unified OAuth2 Token Endpoint supporting:
+    - authorization_code
+    - refresh_token
+    - password
+    Requires client_id and client_secret for authentication.
+    """
 
-    # auth_code_data = auth_codes.pop(code, None)
-    # if not auth_code_data or auth_code_data["client_id"] != client_id:
-    #     raise HTTPException(status_code=400, detail="Invalid authorization code")
+    # Retrieve user consent identity from storage
+    identity = OAUTH_FLOW_USER_CONSENT_STORAGE.get(request.client_id)
+    print("===identity===", identity)
 
-    access_token = str(uuid.uuid4())
-    id_token = str(uuid.uuid4())
+    # Validate if identity exists
+    if identity is None:
+        return JSONResponse(
+            content=TokenResponse(
+                message="OAuth session not found, or the refresh token/authorization code has expired.",
+                success=False,
+            ).model_dump(),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
-    return {
-        "access_token": access_token,
-        "id_token": id_token,
-        "token_type": "Bearer",
-        "expires_in": 3600
-    }
+    # Validate device ID
+    device_id = identity.get("OauthRequest", {}).get("device_id")
+    if device_id != request.device_id:
+        return JSONResponse(
+            content=TokenResponse(
+                message="Device ID mismatch detected. Please ensure you are using the correct device.",
+                success=False,
+            ).model_dump(),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Validate client credentials
+    if request.client_id and request.client_secret:
+        try:
+            dbClient = await validate_client(
+                request.client_id, request.client_secret, db
+            )
+        except ValueError as e:
+            return JSONResponse(
+                content=TokenResponse(
+                    message="Invalid Client ID or Client Secret",
+                    errors=e.args[0],
+                    success=False,
+                ).model_dump(),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+    else:
+        return JSONResponse(
+            content=TokenResponse(
+                message="Invalid Client ID or Client Secret",
+                success=False,
+            ).model_dump(),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Handle supported grant types
+    if request.grant_type in dbClient.grant_types:
+        auth_code_details=identity.get("auth_code")
+        auth_code=auth_code_details.get("auth_code")
+        expires_at=auth_code_details.get("expires_at")
+        # expires_at = identity.get("auth_code", (None, None))
+        # Validate authorization code and expiry
+        if auth_code and expires_at is not None:
+            print("===expires_at",expires_at)
+            if datetime.utcnow() < expires_at:
+                if request.code == auth_code:
+                    access_token, refresh_token, id_token = generate_oauth_tokens(identity)
+                    del OAUTH_FLOW_USER_CONSENT_STORAGE[request.client_id]
+                    return JSONResponse(
+                        content=TokenResponse(
+                            access_token=access_token,
+                            refresh_token=refresh_token,
+                            id_token=id_token,
+                            message="Token exchange successful. Access and refresh tokens have been issued.",
+                            success=True
+                        ).model_dump(),
+                        status_code=status.HTTP_200_OK,
+                    )
+                else:
+                    return JSONResponse(
+                        content=TokenResponse(
+                            message="Authorization code has expired.",
+                            success=False,
+                        ).model_dump(),
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                    )
+        else:
+            return JSONResponse(
+                content=TokenResponse(
+                    message="Invalid authorization code.",
+                    success=False,
+                ).model_dump(),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+    # Handle refresh_token grant type
+    elif request.grant_type == "refresh_token":
+        pass  # Placeholder for refresh token handling logic
+
+    # Unsupported grant type
+    else:
+        return JSONResponse(
+            content=TokenResponse(
+                message="Unsupported grant_type.",
+                success=False,
+            ).model_dump(),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )

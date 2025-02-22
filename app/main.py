@@ -2,6 +2,8 @@
 # from typing import Union
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from app.core.security.rsa_key_generator import public_key_to_jwk
 from app.routers.client import router as OAuthClient_router
 from app.routers.oauth import router as OAuth_router
 from app.routers.accounts import router as AuthRegister_router
@@ -39,6 +41,31 @@ app.add_middleware(
 def get_root():
     #how to return html content
     return  "🚀 Welcome to Oauth2.0 OpenID Connect Server 🚀"
+
+
+
+@app.get("/.well-known/jwks.json")
+async def jwks():
+    jwk = public_key_to_jwk()
+    jwks = {"keys": [jwk]}
+    return JSONResponse(content=jwks)
+
+
+@app.get("/.well-known/openid-configuration")
+async def openid_configuration():
+    config = {
+        "issuer": "https://yourdomain.com",
+        "authorization_endpoint": "https://yourdomain.com/auth",
+        "token_endpoint": "https://yourdomain.com/token",
+        "userinfo_endpoint": "https://yourdomain.com/userinfo",
+        "jwks_uri": "https://yourdomain.com/.well-known/jwks.json",
+        "response_types_supported": ["code", "token", "id_token"],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256"]
+    }
+    return JSONResponse(content=config)
+
+
 
 
 

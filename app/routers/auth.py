@@ -7,7 +7,7 @@ from app.core.response import APIResponse, ResponseHandler
 from app.db.database import get_db
 from app.schemas.auth_schemas import LoginSchema, LoginResponse
 from app.controllers.auth_controller import authenticateLoginUser
-from app.core.security import create_jwt_token, verify_token
+from app.core.osecurity import create_jwt_token, verify_token
 
 # OAuth2 token URL
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
