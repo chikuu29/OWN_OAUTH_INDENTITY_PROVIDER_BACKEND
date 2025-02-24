@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Dict, Optional
 from pydantic import BaseModel
 
@@ -37,9 +38,15 @@ class TokenResponse(BaseModel):
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
     id_token: Optional[str] = None
+    refresh_exp: Optional[datetime] = None  # Changed to datetime for better date handling
+    id_token_exp: Optional[datetime] = None
+    access_exp: Optional[datetime] = None
     authProvider: Optional[str] = None
     login_info: Optional[Dict] = None
     success: bool
     message: str
     errors: Optional[Dict] = None  # Optional to handle cases with no errors
-   
+    # class Config:
+    #     json_encoders = {
+    #         datetime: lambda v: v.isoformat() # Convert datetime to ISO format with 'Z' for UTC
+    #     }

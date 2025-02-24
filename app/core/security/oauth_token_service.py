@@ -1,5 +1,5 @@
 import jwt
-from datetime import datetime,timedelta
+from datetime import datetime, timedelta
 import secrets
 import string
 from passlib.context import CryptContext
@@ -7,13 +7,12 @@ from passlib.context import CryptContext
 
 # Token Expiration Time
 ACCESS_TOKEN_EXPIRY = 3600  # 1 hour
-REFRESH_TOKEN_EXPIRY = 86400  # 24 hours
+REFRESH_TOKEN_EXPIRY = 86400*15  # 24 hours
 ID_TOKEN_EXPIRY = 3600  # 1 hour
 
 from app.core.security.rsa_key_generator import load_rsa_keys
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 
 
 def generate_auth_code(length=32, expires_in=300):
@@ -29,17 +28,17 @@ def generate_auth_code(length=32, expires_in=300):
     """
     # Generate the authorization code
     allowed_chars = string.ascii_letters + string.digits
-    auth_code = ''.join(secrets.choice(allowed_chars) for _ in range(length))
-    
+    auth_code = "".join(secrets.choice(allowed_chars) for _ in range(length))
+
     # Calculate expiration time
     expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
-    
+
     return auth_code, expires_at
 
 
-
-
-def generate_oauth_tokens(payload: dict, include_refresh: bool = True, include_id_token: bool = True):
+def generate_oauth_tokens(
+    payload: dict, include_refresh: bool = True, include_id_token: bool = True
+):
     """
     Generates OAuth tokens based on the given payload.
 
@@ -51,13 +50,13 @@ def generate_oauth_tokens(payload: dict, include_refresh: bool = True, include_i
     Returns:
         dict: A dictionary containing the generated tokens.
     """
-    private_key,public_key=load_rsa_keys()
-    print("===PRIVATE_KEY===",private_key)
+    private_key, public_key = load_rsa_keys()
+    print("===PRIVATE_KEY===", private_key)
 
     issued_at = datetime.utcnow()
-    access_exp = issued_at + timedelta(hours=ACCESS_TOKEN_EXPIRY)
-    refresh_exp = issued_at + timedelta(days=REFRESH_TOKEN_EXPIRY)
-    id_token_exp = issued_at + timedelta(hours=ID_TOKEN_EXPIRY)
+    access_exp = issued_at + timedelta(seconds=ACCESS_TOKEN_EXPIRY)
+    refresh_exp = issued_at + timedelta(seconds=REFRESH_TOKEN_EXPIRY)
+    id_token_exp = issued_at + timedelta(seconds=ID_TOKEN_EXPIRY)
 
     # Access Token
     access_token_payload = {
@@ -68,7 +67,12 @@ def generate_oauth_tokens(payload: dict, include_refresh: bool = True, include_i
         "exp": access_exp.timestamp(),
         "token_type": "access_token",
     }
-    access_token = jwt.encode(access_token_payload, private_key, algorithm="RS256",headers={"kid": "OAUTH_UNIQUE_KEY"})
+    access_token = jwt.encode(
+        access_token_payload,
+        private_key,
+        algorithm="RS256",
+        headers={"kid": "OAUTH_UNIQUE_KEY"},
+    )
 
     # Refresh Token
     refresh_token = None
@@ -80,7 +84,9 @@ def generate_oauth_tokens(payload: dict, include_refresh: bool = True, include_i
             "exp": refresh_exp.timestamp(),
             "token_type": "refresh_token",
         }
-        refresh_token = jwt.encode(refresh_token_payload, private_key, algorithm="RS256")
+        refresh_token = jwt.encode(
+            refresh_token_payload, private_key, algorithm="RS256"
+        )
 
     # ID Token
     id_token = None
@@ -94,4 +100,4 @@ def generate_oauth_tokens(payload: dict, include_refresh: bool = True, include_i
         }
         id_token = jwt.encode(id_token_payload, private_key, algorithm="RS256")
 
-    return access_token, refresh_token, id_token
+    return access_token, refresh_token, id_token, refresh_exp.timestamp(), id_token_exp.timestamp()

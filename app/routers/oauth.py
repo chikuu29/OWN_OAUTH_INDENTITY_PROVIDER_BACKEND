@@ -241,17 +241,20 @@ async def token_endpoint(request: TokenRequest, db: AsyncSession = Depends(get_d
             print("===expires_at",expires_at)
             if datetime.utcnow() < expires_at:
                 if request.code == auth_code:
-                    access_token, refresh_token, id_token = generate_oauth_tokens(identity)
-                    del OAUTH_FLOW_USER_CONSENT_STORAGE[request.client_id]
-                    return JSONResponse(
-                        content=TokenResponse(
+                    access_token, refresh_token, id_token,refresh_exp,id_token_exp = generate_oauth_tokens(identity)
+                    
+                    # del OAUTH_FLOW_USER_CONSENT_STORAGE[request.client_id]
+
+            
+            
+                    return TokenResponse(
                             access_token=access_token,
                             refresh_token=refresh_token,
                             id_token=id_token,
+                            refresh_exp=refresh_exp,
+                            id_token_exp=id_token_exp,
                             message="Token exchange successful. Access and refresh tokens have been issued.",
                             success=True
-                        ).model_dump(),
-                        status_code=status.HTTP_200_OK,
                     )
                 else:
                     return JSONResponse(
