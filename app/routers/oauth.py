@@ -243,10 +243,7 @@ async def token_endpoint(request: TokenRequest, db: AsyncSession = Depends(get_d
                 if request.code == auth_code:
                     access_token, refresh_token, id_token,refresh_exp,id_token_exp = generate_oauth_tokens(identity)
                     
-                    # del OAUTH_FLOW_USER_CONSENT_STORAGE[request.client_id]
-
-            
-            
+                    del OAUTH_FLOW_USER_CONSENT_STORAGE[request.client_id]
                     return TokenResponse(
                             access_token=access_token,
                             refresh_token=refresh_token,

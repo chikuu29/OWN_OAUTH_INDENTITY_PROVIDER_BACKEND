@@ -100,4 +100,4 @@ def generate_oauth_tokens(
         }
         id_token = jwt.encode(id_token_payload, private_key, algorithm="RS256")
 
-    return access_token, refresh_token, id_token, refresh_exp.timestamp(), id_token_exp.timestamp()
+    return access_token, refresh_token, id_token, refresh_exp, id_token_exp

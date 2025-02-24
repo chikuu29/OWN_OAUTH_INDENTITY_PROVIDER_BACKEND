@@ -46,7 +46,7 @@ class TokenResponse(BaseModel):
     success: bool
     message: str
     errors: Optional[Dict] = None  # Optional to handle cases with no errors
-    # class Config:
-    #     json_encoders = {
-    #         datetime: lambda v: v.isoformat() # Convert datetime to ISO format with 'Z' for UTC
-    #     }
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()+'Z' # Convert datetime to ISO format with 'Z' for UTC
+        }
