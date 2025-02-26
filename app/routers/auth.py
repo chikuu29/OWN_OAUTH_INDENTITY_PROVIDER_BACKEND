@@ -52,7 +52,7 @@ async def login(
             "lastName": user.last_name,
             "userFullName": f"{user.first_name} {user.last_name}",
             "tanent_id": user.tenant_id,
-            "tanent_name": user.tenant.tenant_name
+            "tenant_name": user.tenant.tenant_name
         }
         access_token = create_jwt_token(payload, timedelta(minutes=7))
         refresh_token = create_jwt_token(payload, timedelta(days=7))
@@ -120,7 +120,8 @@ async def identity(refresh_token: Annotated[str | None, Cookie()] = None):
         )
 
     print("payload", payload)
-    access_token = access_token = create_jwt_token(payload, timedelta(minutes=7))
+    access_token  = create_jwt_token(payload, timedelta(minutes=7))
+    print("access_token",access_token)
     return {
         "access_token": access_token,
         "authProvider": "credentials",

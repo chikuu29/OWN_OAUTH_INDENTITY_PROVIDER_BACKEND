@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from app.core.security.rsa_key_generator import public_key_to_jwk
+from app.core.security.key_manager import get_jwks
 from app.routers.client import router as OAuthClient_router
 from app.routers.oauth import router as OAuth_router
 from app.routers.accounts import router as AuthRegister_router
@@ -44,9 +44,8 @@ def get_root():
 
 @app.get("/.well-known/jwks.json")
 async def jwks():
-    jwk = public_key_to_jwk()
-    jwks = {"keys": [jwk]}
-    return JSONResponse(content=jwks)
+    """Public endpoint for retrieving JWKS."""
+    return get_jwks()
 
 
 @app.get("/.well-known/openid-configuration")

@@ -7,7 +7,7 @@ pip freeze > requirements.txt
 
 
 pip install fastapi[all] sqlalchemy asyncpg psycopg2
-uvicorn main:app --reload  
+uvicorn app.main:app --reload  
 fastapi dev .\app\main.py      
 
 

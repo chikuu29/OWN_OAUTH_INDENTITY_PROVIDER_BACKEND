@@ -8,9 +8,11 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 import jwt
 from datetime import datetime, timedelta
 
+from app.core.security.key_manager import load_keys
+
 # Paths to store RSA keys and JWT token
 KEYS_DIR = "keys"  # Folder to store keys and token
-os.makedirs(KEYS_DIR, exist_ok=True)
+# os.makedirs(KEYS_DIR, exist_ok=True)
 
 PRIVATE_KEY_PATH = os.path.join(KEYS_DIR, "rsa_private_key.pem")
 PUBLIC_KEY_PATH = os.path.join(KEYS_DIR, "rsa_public_key.pem")
@@ -86,7 +88,6 @@ def public_key_to_jwk():
         "e": e
     }
     return jwk
-
 
 
 

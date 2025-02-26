@@ -3,7 +3,10 @@ from datetime import datetime, timedelta
 import secrets
 import string
 from passlib.context import CryptContext
+import hashlib
+import base64
 
+from app.core.security.key_manager import get_active_private_key
 
 # Token Expiration Time
 ACCESS_TOKEN_EXPIRY = 3600  # 1 hour
@@ -50,8 +53,10 @@ def generate_oauth_tokens(
     Returns:
         dict: A dictionary containing the generated tokens.
     """
-    private_key, public_key = load_rsa_keys()
+    private_key, kid = get_active_private_key()
+    
     print("===PRIVATE_KEY===", private_key)
+    print("===kid===", kid)
 
     issued_at = datetime.utcnow()
     access_exp = issued_at + timedelta(seconds=ACCESS_TOKEN_EXPIRY)
@@ -71,21 +76,21 @@ def generate_oauth_tokens(
         access_token_payload,
         private_key,
         algorithm="RS256",
-        headers={"kid": "OAUTH_UNIQUE_KEY"},
+        headers={"kid": kid},
     )
 
     # Refresh Token
     refresh_token = None
     if include_refresh:
         refresh_token_payload = {
-            "sub": payload.get("sub"),
+            "sub": "chiku",
             "client_id": payload.get("client_id"),
             "iat": issued_at.timestamp(),
             "exp": refresh_exp.timestamp(),
             "token_type": "refresh_token",
         }
         refresh_token = jwt.encode(
-            refresh_token_payload, private_key, algorithm="RS256"
+            refresh_token_payload, private_key, algorithm="RS256", headers={"kid": kid},
         )
 
     # ID Token
@@ -98,6 +103,21 @@ def generate_oauth_tokens(
             "exp": id_token_exp.timestamp(),
             "token_type": "id_token",
         }
-        id_token = jwt.encode(id_token_payload, private_key, algorithm="RS256")
+        id_token = jwt.encode(id_token_payload, private_key, algorithm="RS256", headers={"kid": kid})
 
     return access_token, refresh_token, id_token, refresh_exp, id_token_exp
+
+
+
+
+
+
+def generate_kid(public_key):
+    """Generate a unique key ID (kid) using SHA-256 hash of the public key modulus."""
+    public_numbers = public_key.public_numbers()
+    n_bytes = public_numbers.n.to_bytes((public_numbers.n.bit_length() + 7) // 8, byteorder="big")
+
+    # Compute SHA-256 hash and base64url encode it
+    kid_hash = hashlib.sha256(n_bytes).digest()
+    kid = base64.urlsafe_b64encode(kid_hash).rstrip(b'=').decode('utf-8')
+    return kid
