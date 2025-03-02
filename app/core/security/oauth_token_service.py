@@ -1,3 +1,4 @@
+import json
 import jwt
 from datetime import datetime, timedelta
 import secrets
@@ -5,12 +6,13 @@ import string
 from passlib.context import CryptContext
 import hashlib
 import base64
+from jwt import PyJWKClient
 
-from app.core.security.key_manager import get_active_private_key
+from app.core.security.key_manager import get_active_private_key, get_jwks
 
 # Token Expiration Time
 ACCESS_TOKEN_EXPIRY = 3600  # 1 hour
-REFRESH_TOKEN_EXPIRY = 86400*15  # 24 hours
+REFRESH_TOKEN_EXPIRY = 86400 * 15  # 24 hours
 ID_TOKEN_EXPIRY = 3600  # 1 hour
 
 from app.core.security.rsa_key_generator import load_rsa_keys
@@ -51,12 +53,13 @@ def generate_oauth_tokens(
         include_id_token (bool): If True, generates an ID token.
 
     Returns:
-        dict: A dictionary containing the generated tokens.
+        tuple: A tuple containing the access token, refresh token, ID token, refresh token expiration, and ID token expiration.
     """
     private_key, kid = get_active_private_key()
-    
-    print("===PRIVATE_KEY===", private_key)
-    print("===kid===", kid)
+    print("====PAYLOAD===",payload)
+
+    # print("===PRIVATE_KEY===", private_key)
+    # print("===kid===", kid)
 
     issued_at = datetime.utcnow()
     access_exp = issued_at + timedelta(seconds=ACCESS_TOKEN_EXPIRY)
@@ -90,7 +93,10 @@ def generate_oauth_tokens(
             "token_type": "refresh_token",
         }
         refresh_token = jwt.encode(
-            refresh_token_payload, private_key, algorithm="RS256", headers={"kid": kid},
+            refresh_token_payload,
+            private_key,
+            algorithm="RS256",
+            headers={"kid": kid},
         )
 
     # ID Token
@@ -103,21 +109,77 @@ def generate_oauth_tokens(
             "exp": id_token_exp.timestamp(),
             "token_type": "id_token",
         }
-        id_token = jwt.encode(id_token_payload, private_key, algorithm="RS256", headers={"kid": kid})
+        id_token = jwt.encode(
+            id_token_payload, private_key, algorithm="RS256", headers={"kid": kid}
+        )
 
     return access_token, refresh_token, id_token, refresh_exp, id_token_exp
-
-
-
-
 
 
 def generate_kid(public_key):
     """Generate a unique key ID (kid) using SHA-256 hash of the public key modulus."""
     public_numbers = public_key.public_numbers()
-    n_bytes = public_numbers.n.to_bytes((public_numbers.n.bit_length() + 7) // 8, byteorder="big")
+    n_bytes = public_numbers.n.to_bytes(
+        (public_numbers.n.bit_length() + 7) // 8, byteorder="big"
+    )
 
     # Compute SHA-256 hash and base64url encode it
     kid_hash = hashlib.sha256(n_bytes).digest()
-    kid = base64.urlsafe_b64encode(kid_hash).rstrip(b'=').decode('utf-8')
+    kid = base64.urlsafe_b64encode(kid_hash).rstrip(b"=").decode("utf-8")
     return kid
+
+
+async def validate_token(TOKEN: str):
+    """
+    Validate the given refresh token.
+
+    Args:
+        refresh_token (str): The refresh token to validate.
+
+    Returns:
+        Dict: Decoded token payload if valid.
+
+    Raises:
+        ValueError: If token validation fails.
+    """
+    if not TOKEN:
+        raise ValueError("TOKEN is required.")
+
+    try:
+        # Fetch JWKS
+        jwks = get_jwks()
+        jwks_keys = jwks.get("keys", [])
+
+        # Decode JWT header to extract 'kid'
+        decoded_header = jwt.get_unverified_header(TOKEN)
+        kid = decoded_header.get("kid")
+
+        if not kid:
+            raise ValueError("Token does not contain 'kid' in the header.")
+
+        # Find the matching JWK
+        matching_jwk = next((key for key in jwks_keys if key["kid"] == kid), None)
+
+        if not matching_jwk:
+            raise ValueError("No matching JWK found for the token.")
+
+        # Convert JWK to PEM format
+        public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(matching_jwk))
+
+        # Verify and decode the JWT
+        decoded_payload = jwt.decode(
+            TOKEN,
+            public_key,
+            algorithms=["RS256"],
+            options={"verify_exp": True},
+            verify=True # Ensure expiration validation
+        )
+
+        return decoded_payload
+
+    except jwt.ExpiredSignatureError:
+        raise ValueError("Token has expired.")
+    except jwt.InvalidTokenError as e:
+        raise ValueError(f"Invalid token: {e}")
+    except Exception as e:
+        raise ValueError(f"Error validating token: {e}")
