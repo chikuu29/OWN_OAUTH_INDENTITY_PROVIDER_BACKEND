@@ -1,4 +1,5 @@
 import json
+from fastapi import HTTPException,status
 import jwt
 from datetime import datetime, timedelta
 import secrets
@@ -6,14 +7,16 @@ import string
 from passlib.context import CryptContext
 import hashlib
 import base64
-from jwt import PyJWKClient
+
 
 from app.core.security.key_manager import get_active_private_key, get_jwks
 
 # Token Expiration Time
+# Token Expiration Times
 ACCESS_TOKEN_EXPIRY = 3600  # 1 hour
-REFRESH_TOKEN_EXPIRY = 86400 * 15  # 24 hours
+REFRESH_TOKEN_EXPIRY = 86400 * 15  # 15 days
 ID_TOKEN_EXPIRY = 3600  # 1 hour
+
 
 from app.core.security.rsa_key_generator import load_rsa_keys
 
@@ -56,21 +59,24 @@ def generate_oauth_tokens(
         tuple: A tuple containing the access token, refresh token, ID token, refresh token expiration, and ID token expiration.
     """
     private_key, kid = get_active_private_key()
-    print("====PAYLOAD===",payload)
+    print("====PAYLOAD===", payload)
 
     # print("===PRIVATE_KEY===", private_key)
     # print("===kid===", kid)
 
-    issued_at = datetime.utcnow()
+    issued_at = datetime.now()
     access_exp = issued_at + timedelta(seconds=ACCESS_TOKEN_EXPIRY)
     refresh_exp = issued_at + timedelta(seconds=REFRESH_TOKEN_EXPIRY)
     id_token_exp = issued_at + timedelta(seconds=ID_TOKEN_EXPIRY)
 
     # Access Token
     access_token_payload = {
-        "sub": "payload.get('sub')",
-        "client_id": payload.get("client_id"),
-        "scope": payload.get("scope"),
+        "sub": payload.get("login_user", {}).get("username", None),
+        "tenant_name": payload.get("login_user", {}).get("tenant_name", None),
+        "client_id": payload.get("client_id", "UNKNOWN"),
+        "role": "admin",
+        "permissions": [],
+        "scope": [],
         "iat": issued_at.timestamp(),
         "exp": access_exp.timestamp(),
         "token_type": "access_token",
@@ -86,11 +92,14 @@ def generate_oauth_tokens(
     refresh_token = None
     if include_refresh:
         refresh_token_payload = {
-            "sub": "chiku",
-            "client_id": payload.get("client_id"),
+            "sub": payload.get("login_user", {}).get("username", None),
+            "tenant_name": payload.get("login_user", {}).get("tenant_name", None),
+            "client_id": payload.get("client_id", "UNKNOWN"),
+            'role':'admin',
             "iat": issued_at.timestamp(),
             "exp": refresh_exp.timestamp(),
             "token_type": "refresh_token",
+            **payload.get("login_user",{})
         }
         refresh_token = jwt.encode(
             refresh_token_payload,
@@ -103,11 +112,13 @@ def generate_oauth_tokens(
     id_token = None
     if include_id_token:
         id_token_payload = {
-            "sub": payload.get("sub"),
-            "client_id": payload.get("client_id"),
+            "sub": payload.get("login_user", {}).get("username", None),
+            "tenant_name": payload.get("login_user", {}).get("tenant_name", None),
+            "client_id": payload.get("client_id", "UNKNOWN"),
             "iat": issued_at.timestamp(),
             "exp": id_token_exp.timestamp(),
             "token_type": "id_token",
+            **payload.get("login_user",{})
         }
         id_token = jwt.encode(
             id_token_payload, private_key, algorithm="RS256", headers={"kid": kid}
@@ -131,19 +142,23 @@ def generate_kid(public_key):
 
 async def validate_token(TOKEN: str):
     """
-    Validate the given refresh token.
+    Validate the given token.
 
     Args:
-        refresh_token (str): The refresh token to validate.
+        TOKEN (str): The access token to validate.
 
     Returns:
         Dict: Decoded token payload if valid.
 
     Raises:
-        ValueError: If token validation fails.
+        HTTPException: If token validation fails.
     """
     if not TOKEN:
-        raise ValueError("TOKEN is required.")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="TOKEN is required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     try:
         # Fetch JWKS
@@ -155,13 +170,21 @@ async def validate_token(TOKEN: str):
         kid = decoded_header.get("kid")
 
         if not kid:
-            raise ValueError("Token does not contain 'kid' in the header.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token does not contain 'kid' in the header.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         # Find the matching JWK
         matching_jwk = next((key for key in jwks_keys if key["kid"] == kid), None)
 
         if not matching_jwk:
-            raise ValueError("No matching JWK found for the token.")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="No matching JWK found for the token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         # Convert JWK to PEM format
         public_key = jwt.algorithms.RSAAlgorithm.from_jwk(json.dumps(matching_jwk))
@@ -172,14 +195,27 @@ async def validate_token(TOKEN: str):
             public_key,
             algorithms=["RS256"],
             options={"verify_exp": True},
-            verify=True # Ensure expiration validation
+            verify=True,  # Ensure expiration validation
         )
 
         return decoded_payload
 
     except jwt.ExpiredSignatureError:
-        raise ValueError("Token has expired.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token has expired.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     except jwt.InvalidTokenError as e:
-        raise ValueError(f"Invalid token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid token: {e}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     except Exception as e:
-        raise ValueError(f"Error validating token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error validating token: {e}",
+        )

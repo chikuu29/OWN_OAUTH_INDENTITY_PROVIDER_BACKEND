@@ -42,42 +42,7 @@ from datetime import datetime, timedelta
 
 security = HTTPBasic()
 # In-memory store for auto tokens (replace with DB)
-OAUTH_FLOW_USER_CONSENT_STORAGE = {
-    "client_id": "client_id",
-    "client_name": "MYOMSPANEL",
-    "client_type": "confidential",
-    "redirect_urls": ["http://localhost:5173/auth/callback"],
-    "post_logout_redirect_urls": ["https://example.com/logout-callback"],
-    "token_endpoint_auth_method": "client_secret_basic",
-    "response_types": ["code"],
-    "grant_types": ["authorization_code", "refresh_token"],
-    "allowed_origins": ["http://localhost:5173"],
-    "scope": ["openid", "profile", "email"],
-    "skip_authorization": False,
-    "OauthRequest": {
-        "client_id": "client_id",
-        "redirect_url": "http://localhost:5173/auth/callback",
-        "response_type": "code",
-        "scope": "openid profile email",
-        "state": None,
-        "device_id": "1a835215-a09f-4878-a5f2-0ee083fe79f2",
-    },
-    "expires_at": datetime(2025, 3, 2, 9, 27, 44, 6821),
-    "login_user": {
-        "email": "cchiku1999@gmail.com",
-        "username": "SURYA",
-        "firstName": "SURYANARAYAN",
-        "lastName": "BISWAL",
-        "userFullName": "SURYANARAYAN BISWAL",
-        "tanent_id": 1,
-        "tenant_name": "DEVELOPER_ORGANTISATION",
-        "exp": 1740908024,
-    },
-    "auth_code": {
-        "auth_code": "XZmpMstDAIgxhlBIeJcnjp9HXfUNbAqO",
-        "expires_at": datetime(2025, 3, 2, 9, 31, 46, 414230),
-    },
-}
+OAUTH_FLOW_USER_CONSENT_STORAGE = {}
 
 
 router = APIRouter(
@@ -220,44 +185,44 @@ async def token_endpoint(request: TokenRequest, db: AsyncSession = Depends(get_d
     - password
     Requires client_id and client_secret for authentication.
     """
-    OAUTH_FLOW_USER_CONSENT_STORAGE = {
-        "client_id": {
-            "client_id": "client_id",
-            "client_name": "MYOMSPANEL",
-            "client_type": "confidential",
-            "redirect_urls": ["http://localhost:5173/auth/callback"],
-            "post_logout_redirect_urls": ["https://example.com/logout-callback"],
-            "token_endpoint_auth_method": "client_secret_basic",
-            "response_types": ["code"],
-            "grant_types": ["authorization_code", "refresh_token"],
-            "allowed_origins": ["http://localhost:5173"],
-            "scope": ["openid", "profile", "email"],
-            "skip_authorization": False,
-            "OauthRequest": {
-                "client_id": "client_id",
-                "redirect_url": "http://localhost:5173/auth/callback",
-                "response_type": "code",
-                "scope": "openid profile email",
-                "state": None,
-                "device_id": "1a835215-a09f-4878-a5f2-0ee083fe79f2",
-            },
-            "expires_at": datetime(2025, 3, 2, 9, 27, 44, 6821),
-            "login_user": {
-                "email": "cchiku1999@gmail.com",
-                "username": "SURYA",
-                "firstName": "SURYANARAYAN",
-                "lastName": "BISWAL",
-                "userFullName": "SURYANARAYAN BISWAL",
-                "tanent_id": 1,
-                "tenant_name": "DEVELOPER_ORGANTISATION",
-                "exp": 1740908024,
-            },
-            "auth_code": {
-                "auth_code": "XZmpMstDAIgxhlBIeJcnjp9HXfUNbAqO",
-                "expires_at": datetime(2025, 3, 2, 9, 31, 46, 414230),
-            },
-        }
-    }
+    # OAUTH_FLOW_USER_CONSENT_STORAGE = {
+    #     "client_id": {
+    #         "client_id": "client_id",
+    #         "client_name": "MYOMSPANEL",
+    #         "client_type": "confidential",
+    #         "redirect_urls": ["http://localhost:5173/auth/callback"],
+    #         "post_logout_redirect_urls": ["https://example.com/logout-callback"],
+    #         "token_endpoint_auth_method": "client_secret_basic",
+    #         "response_types": ["code"],
+    #         "grant_types": ["authorization_code", "refresh_token"],
+    #         "allowed_origins": ["http://localhost:5173"],
+    #         "scope": ["openid", "profile", "email"],
+    #         "skip_authorization": False,
+    #         "OauthRequest": {
+    #             "client_id": "client_id",
+    #             "redirect_url": "http://localhost:5173/auth/callback",
+    #             "response_type": "code",
+    #             "scope": "openid profile email",
+    #             "state": None,
+    #             "device_id": "61b2dea5-3ea4-4184-9fa0-c86887efd043",
+    #         },
+    #         "expires_at": datetime(2025, 3, 2, 9, 27, 44, 6821),
+    #         "login_user": {
+    #             "email": "cchiku1999@gmail.com",
+    #             "username": "SURYA",
+    #             "firstName": "SURYANARAYAN",
+    #             "lastName": "BISWAL",
+    #             "userFullName": "SURYANARAYAN BISWAL",
+    #             "tanent_id": 1,
+    #             "tenant_name": "DEVELOPER_ORGANTISATION",
+    #             "exp": 1740908024,
+    #         },
+    #         "auth_code": {
+    #             "auth_code": "gDBKJ0vh8LoawNDJDTQueEIU8lAMvGh0",
+    #             "expires_at": datetime.now() +timedelta(days=14),
+    #         },
+    #     }
+    # }
 
     # Retrieve user consent identity from storage
     identity = OAUTH_FLOW_USER_CONSENT_STORAGE.get(request.client_id)
@@ -313,37 +278,40 @@ async def token_endpoint(request: TokenRequest, db: AsyncSession = Depends(get_d
         request.grant_type in dbClient.grant_types
         and request.grant_type == "authorization_code"
     ):
-        auth_code_details = identity.get("auth_code")
-        auth_code = auth_code_details.get("auth_code")
-        expires_at = auth_code_details.get("expires_at")
+        auth_code_details = identity.get("auth_code", {})
+        auth_code = auth_code_details.get("auth_code", None)
+        expires_at = auth_code_details.get("expires_at", None)
         # expires_at = identity.get("auth_code", (None, None))
         # Validate authorization code and expiry
         if auth_code and expires_at is not None:
             print("===expires_at", expires_at)
-            if datetime.utcnow() < expires_at:
-                if request.code == auth_code:
-                    access_token, refresh_token, id_token, refresh_exp, id_token_exp = (
-                        generate_oauth_tokens(identity)
-                    )
+            # if datetime.now() < expires_at:
 
-                    del OAUTH_FLOW_USER_CONSENT_STORAGE[request.client_id]["auth_code"]
-                    return TokenResponse(
-                        access_token=access_token,
-                        refresh_token=refresh_token,
-                        id_token=id_token,
-                        refresh_exp=refresh_exp,
-                        id_token_exp=id_token_exp,
-                        message="Token exchange successful. Access and refresh tokens have been issued.",
-                        success=True,
-                    )
-                else:
-                    return JSONResponse(
-                        content=TokenResponse(
-                            message="Authorization code has expired.",
-                            success=False,
-                        ).model_dump(),
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    )
+            if request.code == auth_code and datetime.now() < expires_at:
+                access_token, refresh_token, id_token, refresh_exp, id_token_exp = (
+                    generate_oauth_tokens(identity)
+                )
+
+                del OAUTH_FLOW_USER_CONSENT_STORAGE[request.client_id]["auth_code"]
+                return TokenResponse(
+                    access_token=access_token,
+                    refresh_token=refresh_token,
+                    id_token=id_token,
+                    refresh_exp=refresh_exp,
+                    id_token_exp=id_token_exp,
+                    login_info=identity.get("login_user", {}),
+                    message="Token exchange successful. Access and refresh tokens have been issued.",
+                    success=True,
+                )
+            else:
+                return JSONResponse(
+                    content=TokenResponse(
+                        message="Authorization code has expired.",
+                        success=False,
+                    ).model_dump(),
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+
         else:
             return JSONResponse(
                 content=TokenResponse(
@@ -357,10 +325,12 @@ async def token_endpoint(request: TokenRequest, db: AsyncSession = Depends(get_d
     elif request.grant_type == "refresh_token":
         try:
             decodeData = await validate_token(TOKEN=request.refresh_token)
-            print("DecodeData",decodeData)
-            if decodeData is not None and decodeData['token_type'] == "refresh_token":
+            print("DecodeData", decodeData)
+            if decodeData is not None and decodeData["token_type"] == "refresh_token":
 
-                access_token, refresh_token, id_token, refresh_exp, id_token_exp = generate_oauth_tokens(identity,include_refresh=False)
+                access_token, refresh_token, id_token, refresh_exp, id_token_exp = (
+                    generate_oauth_tokens(identity, include_refresh=False)
+                )
 
                 return TokenResponse(
                     access_token=access_token,
