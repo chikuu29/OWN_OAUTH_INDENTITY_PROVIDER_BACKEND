@@ -60,7 +60,7 @@ async def openid_configuration():
         "issuer": f"{DOMAIN}",
         "authorization_endpoint": f"{DOMAIN}/oauth/authorize",
         "token_endpoint": f"{DOMAIN}/auth/token",
-        "userinfo_endpoint": f"{DOMAIN}/api/userinfo",
+        "userinfo_endpoint": f"{DOMAIN}/auth/userinfo",
         "jwks_uri": f"{DOMAIN}/.well-known/jwks.json",
         "response_types_supported": ["code", "token", "id_token"],
         "subject_types_supported": ["public"],

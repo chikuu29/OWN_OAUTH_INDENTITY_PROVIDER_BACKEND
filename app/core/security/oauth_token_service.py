@@ -39,7 +39,7 @@ def generate_auth_code(length=32, expires_in=300):
     auth_code = "".join(secrets.choice(allowed_chars) for _ in range(length))
 
     # Calculate expiration time
-    expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+    expires_at = datetime.now() + timedelta(seconds=expires_in)
 
     return auth_code, expires_at
 
