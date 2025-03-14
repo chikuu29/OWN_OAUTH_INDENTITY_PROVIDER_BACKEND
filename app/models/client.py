@@ -39,3 +39,23 @@ class OAuthClient(Base):
     def verify_client_secret(self, plain_secret: str) -> bool:
         """Verify provided client_secret against hashed version."""
         return pwd_context.verify(plain_secret, self.hash_client_secret)
+    
+    def to_dict(self):
+        """Convert model instance to a dictionary for JSON serialization."""
+        return {
+            "id": self.id,
+            "client_name": self.client_name,
+            "client_id": self.client_id,
+            "client_type": self.client_type,
+            "authorization_grant_types": self.authorization_grant_types,
+            "redirect_urls": self.redirect_urls,
+            "post_logout_redirect_urls": self.post_logout_redirect_urls,
+            "skip_authorization": self.skip_authorization,
+            "allowed_origins": self.allowed_origins,
+            "token_endpoint_auth_method": self.token_endpoint_auth_method,
+            "scope": self.scope,
+            "response_types": self.response_types,
+            "grant_types": self.grant_types,
+            "algorithm": self.algorithm,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }

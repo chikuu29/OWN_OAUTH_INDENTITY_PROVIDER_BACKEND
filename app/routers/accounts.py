@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.db.database import get_db
+from app.models.auth import User
 from app.schemas.tanent import TenantCreate 
 # from app.crud.client import create_oauth_client
 from app.controllers.account_controller import create_tenant,register_user
@@ -12,7 +13,7 @@ from app.core.response import ResponseHandler,APIResponse
 from app.models.tenant import Tenant
 from app.schemas.auth_schemas import UserRegisterSchema
 from app.core.db_helpers import model_to_dict
-
+from sqlalchemy.orm import selectinload
 
 
 router = APIRouter(
@@ -51,7 +52,34 @@ async def register_authuser(user:UserRegisterSchema,db:AsyncSession=Depends(get_
             )
             
 
+@router.get("/auth_users")
+async def get_oauth_users(
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),  # Default page = 1 (>=1)
+    limit: int = Query(10, le=100),  # Max limit = 100
+):
+    # Calculate offset for pagination
+    offset = (page - 1) * limit
 
+    # Fetch total records for pagination meta
+    total = await db.scalar(select(func.count()).select_from(User))
+
+    # Fetch paginated results
+    result = await db.execute(select(User).options(selectinload(User.tenant)).offset(offset).limit(limit))
+    users = result.scalars().all()
+
+    if not users:
+        raise HTTPException(status_code=404, detail="No auth user found")
+
+    return {
+        "message": "Auth Users fetched successfully",
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "pages": (total // limit) + (1 if total % limit != 0 else 0),  # Total pages
+        "data": [user.to_dict(include_tenat=False) for user in users],
+        "success":True
+    }
 
 
 
