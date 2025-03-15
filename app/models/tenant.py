@@ -20,5 +20,7 @@ class Tenant(Base):
         return {
             "tenant_id": str(self.tenant_id),  # Convert UUID to string
             "tenant_email": self.tenant_email,
-            "tenant_name": self.tenant_name
+            "tenant_name": self.tenant_name,
+            "created_at":self.created_at,
+            "tenant_active":self.tenant_active
         }
