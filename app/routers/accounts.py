@@ -142,3 +142,24 @@ async def get_tenant(
         "data": [tenant.to_dict() for tenant in tenants],
         "success": True,
     }
+
+
+@router.get("/tenants-with-roles")
+async def get_tenants_with_roles(db: AsyncSession = Depends(get_db)):
+    # Fetch all tenants and their roles
+    result = await db.execute(select(Tenant).options(selectinload(Tenant.roles)))
+    tenants = result.scalars().all()
+
+    # Transform data to desired structure
+    tenants_with_roles = [
+        {
+            "id": tenant.tenant_id,
+            "name": tenant.tenant_name,
+            "roles": [role.role_name for role in tenant.roles],
+            "isActive": tenant.tenant_active,
+            "created_at": tenant.created_at
+        }
+        for tenant in tenants
+    ]
+
+    return tenants_with_roles

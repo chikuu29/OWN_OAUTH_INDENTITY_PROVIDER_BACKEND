@@ -41,7 +41,7 @@ class Tenant(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
     )
     # Relationship with Role
-    roles = relationship("Role", back_populates="tenant", cascade="all, delete-orphan",lazy='joined')
+    roles = relationship("Role", back_populates="tenant", cascade="all, delete-orphan",lazy='selectin')
 
     def to_dict(self):
         return {
@@ -49,8 +49,8 @@ class Tenant(Base):
             "tenant_email": self.tenant_email,
             "tenant_name": self.tenant_name,
             "created_at": self.created_at,
-            "tenant_active": self.tenant_active,
-            "roles": [role.to_dict() for role in self.roles],
+            "tenant_active": self.tenant_active
+            # "roles": [role.to_dict() for role in self.roles],
         }
 
 
