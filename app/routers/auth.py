@@ -1,4 +1,5 @@
 from datetime import timedelta
+import json
 from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Response, status
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
@@ -6,9 +7,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.response import APIResponse, ResponseHandler
 from app.core.security.authentications import getRequestIdentity
+from app.core.security.oauth_token_service import generate_oauth_tokens, validate_token
 from app.db.database import get_db
 from app.models.auth import User
-from app.schemas.auth_schemas import LoginSchema, LoginResponse
+from app.models.tenant import Permission, Role, ScopeEnum, Tenant
+from app.schemas.auth_schemas import (
+    LoginSchema,
+    LoginResponse,
+    PermissionBulkCreate,
+    RoleCreate,
+)
 from app.controllers.auth_controller import authenticateLoginUser
 from app.core.osecurity import create_jwt_token, verify_token
 from sqlalchemy.orm import joinedload, selectinload
@@ -48,6 +56,7 @@ async def login(
         #   "aud": "your-client-id"  // Audience (Optional)
         # }
         payload = {
+            "sub": user.username,
             "email": user.email,
             "username": user.username,
             "firstName": user.first_name,
@@ -56,8 +65,10 @@ async def login(
             "tanent_id": user.tenant_id,
             "tenant_name": user.tenant.tenant_name,
         }
-        access_token = create_jwt_token(payload, timedelta(minutes=7))
-        refresh_token = create_jwt_token(payload, timedelta(days=7))
+
+        access_token, refresh_token, *_ = generate_oauth_tokens(payload)
+        # access_token = create_jwt_token(payload, timedelta(minutes=7))
+        # refresh_token = create_jwt_token(payload, timedelta(days=7))
 
         # 🍪 Set HTTP cookies
         # response.set_cookie(
@@ -112,8 +123,8 @@ async def identity(refresh_token: Annotated[str | None, Cookie()] = None):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token found"
         )
-
-    payload = verify_token(refresh_token, "REFRESH_SECRET_KEY")
+    payload = await validate_token(TOKEN=refresh_token)
+    # payload = verify_token(refresh_token, "REFRESH_SECRET_KEY")
 
     if payload is None:
         raise HTTPException(
@@ -122,7 +133,8 @@ async def identity(refresh_token: Annotated[str | None, Cookie()] = None):
         )
 
     print("payload", payload)
-    access_token = create_jwt_token(payload, timedelta(minutes=7))
+    # access_token = create_jwt_token(payload, timedelta(minutes=7))
+    access_token, *_ = generate_oauth_tokens(payload, False, False)
     print("access_token", access_token)
     return {
         "access_token": access_token,
@@ -168,7 +180,6 @@ async def userInfo(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    
     return {
         "id": user.id,
         "first_name": user.first_name,
@@ -184,4 +195,99 @@ async def userInfo(
             "city": user.profile.city if user.profile else None,
             "country": user.profile.country if user.profile else None,
         },
+    }
+
+
+@router.post("/roles/")
+async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db)):
+    # Check if role already exists for this tenant
+    existing_role = await db.execute(
+        select(Role).filter(
+            Role.role_name == role_data.role_name, Role.tenant_id == role_data.tenant_id
+        )
+    )
+    if existing_role.scalars().first():
+        raise HTTPException(
+            status_code=400, detail="Role with this name already exists for the tenant."
+        )
+
+    # Create new Role
+    new_role = Role(
+        role_name=role_data.role_name,
+        is_active=role_data.is_active,
+        tenant_id=role_data.tenant_id,
+    )
+    db.add(new_role)
+    await db.commit()
+    await db.refresh(new_role)
+
+    # Add Permissions
+    for perm in role_data.permissions:
+        new_permission = Permission(
+            permission_name=perm.permission_name,
+            scopes=perm.scopes,
+            description=perm.description,
+            role_id=new_role.id,
+        )
+        db.add(new_permission)
+
+    await db.commit()
+    return {"message": "Role created successfully", "role_id": new_role.id}
+
+
+@router.post("/permissions/")
+async def create_permissions(
+    permission_data: PermissionBulkCreate, db: AsyncSession = Depends(get_db)
+):
+    # Check if the role exists
+    role = await db.execute(select(Role).filter(Role.id == permission_data.role_id))
+    role = role.scalars().first()
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found.")
+    print("role", role)
+    print("permission_data", permission_data)
+    # Get existing permissions for this role
+    existing_permissions = await db.execute(
+        select(Permission).filter(Permission.role_id == permission_data.role_id)
+    )
+    existing_permission_names = {
+        permission.permission_name for permission in existing_permissions.scalars().all()
+    }
+    print("existing_permission_names", existing_permission_names)
+    # Validate and create new permissions
+    new_permissions = []
+    for perm in permission_data.permissions:
+        if perm.permission_name in existing_permission_names:
+            continue  # Skip if permission already exists
+
+        # Validate scope
+        invalid_scopes = [s for s in perm.scopes if s not in ScopeEnum.__members__]
+        if invalid_scopes:
+            raise HTTPException(
+                status_code=400, detail=f"Invalid scopes: {', '.join(invalid_scopes)}"
+            )
+
+        new_permissions.append(
+            Permission(
+                permission_name=perm.permission_name,
+                scopes=perm.scopes,  # Store as JSON
+                description=perm.description,
+                role_id=permission_data.role_id,
+            )
+        )
+
+
+    print("new_permissions", new_permissions)
+    # If no valid new permissions, return an error
+    if not new_permissions:
+        raise HTTPException(
+            status_code=400, detail="All permissions already exist for this role."
+        )
+
+    db.add_all(new_permissions)
+    await db.commit()
+
+    return {
+        "message": "Permissions added successfully",
+        "added_permissions": [perm.permission_name for perm in new_permissions],
     }

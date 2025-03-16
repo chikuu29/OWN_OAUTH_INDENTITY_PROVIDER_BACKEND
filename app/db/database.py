@@ -11,7 +11,7 @@ from app.config import DATABASE_URL
 
 
 engine = create_async_engine(DATABASE_URL, echo=True)
-SessionLocal = sessionmaker(
+AsyncSessionLocal  = sessionmaker(
       bind=engine,
       class_=AsyncSession,
       expire_on_commit=False
@@ -23,7 +23,7 @@ class Base(DeclarativeBase):
     pass
 
 async def get_db():
-    async with SessionLocal() as session:
+    async with AsyncSessionLocal() as session:
         print(f"😄===DATABASE CONNECTION SUCCESSFULL===")
         yield session
     # db = SessionLocal()

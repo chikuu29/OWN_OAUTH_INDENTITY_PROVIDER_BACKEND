@@ -71,7 +71,7 @@ def generate_oauth_tokens(
 
     # Access Token
     access_token_payload = {
-        "sub": payload.get("login_user", {}).get("username", None),
+        "sub": payload.get("login_user", {}).get("username", 'UNKNOWN'),
         "tenant_name": payload.get("login_user", {}).get("tenant_name", None),
         "client_id": payload.get("client_id", "UNKNOWN"),
         "role": "admin",
@@ -80,6 +80,7 @@ def generate_oauth_tokens(
         "iat": issued_at.timestamp(),
         "exp": access_exp.timestamp(),
         "token_type": "access_token",
+        **payload
     }
     access_token = jwt.encode(
         access_token_payload,
@@ -92,14 +93,14 @@ def generate_oauth_tokens(
     refresh_token = None
     if include_refresh:
         refresh_token_payload = {
-            "sub": payload.get("login_user", {}).get("username", None),
+            "sub": payload.get("login_user", {}).get("username", 'UNKNOWN'),
             "tenant_name": payload.get("login_user", {}).get("tenant_name", None),
             "client_id": payload.get("client_id", "UNKNOWN"),
             'role':'admin',
             "iat": issued_at.timestamp(),
             "exp": refresh_exp.timestamp(),
             "token_type": "refresh_token",
-            **payload.get("login_user",{})
+            **payload
         }
         refresh_token = jwt.encode(
             refresh_token_payload,
@@ -112,13 +113,13 @@ def generate_oauth_tokens(
     id_token = None
     if include_id_token:
         id_token_payload = {
-            "sub": payload.get("login_user", {}).get("username", None),
+            "sub": payload.get("login_user", {}).get("username", 'UNKNOWN'),
             "tenant_name": payload.get("login_user", {}).get("tenant_name", None),
             "client_id": payload.get("client_id", "UNKNOWN"),
             "iat": issued_at.timestamp(),
             "exp": id_token_exp.timestamp(),
             "token_type": "id_token",
-            **payload.get("login_user",{})
+            **payload
         }
         id_token = jwt.encode(
             id_token_payload, private_key, algorithm="RS256", headers={"kid": kid}
@@ -168,6 +169,7 @@ async def validate_token(TOKEN: str):
         # Decode JWT header to extract 'kid'
         decoded_header = jwt.get_unverified_header(TOKEN)
         kid = decoded_header.get("kid")
+        print("====kid====", decoded_header)
 
         if not kid:
             raise HTTPException(

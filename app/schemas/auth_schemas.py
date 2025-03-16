@@ -1,5 +1,14 @@
+import enum
 from pydantic import BaseModel, EmailStr
-from typing import Dict, Optional
+from typing import Dict, List, Optional
+import uuid
+from sqlalchemy import UUID
+
+class ScopeEnum(str, enum.Enum):
+    read = "read"
+    write = "write"
+    edit = "edit"
+    delete = "delete"
 
 class UserProfileSchema(BaseModel):
     bio: Optional[str] = None
@@ -34,3 +43,21 @@ class LoginResponse(BaseModel):
     success: bool
     message: str
     error: Optional[Dict] = None  # Optional to handle cases with no errors
+
+
+# Pydantic Schemas
+class PermissionCreate(BaseModel):
+    permission_name: str
+    scopes: list[ScopeEnum]
+    description: str | None = None
+
+class RoleCreate(BaseModel):
+    role_name: str
+    is_active: bool = True
+    tenant_id: uuid.UUID
+    permissions: Optional[List[PermissionCreate]] = []
+
+class PermissionBulkCreate(BaseModel):
+    role_id: int
+    # role_name: Optional[str]
+    permissions: List[PermissionCreate]

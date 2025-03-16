@@ -98,7 +98,7 @@ async def register_tanets(client: TenantCreate, db: AsyncSession = Depends(get_d
         )
 
 
-@router.get("/tenant/")
+@router.get("/tenants")
 async def get_tenant(
     tenant_id: Optional[UUID] = None,
     db: AsyncSession = Depends(get_db),
@@ -110,7 +110,7 @@ async def get_tenant(
 
     if tenant_id:
         # Fetch specific tenant
-        result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+        result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
         tenant = result.scalars().first()
 
         if not tenant:
@@ -122,7 +122,7 @@ async def get_tenant(
             "page": 1,
             "limit": 1,
             "pages": 1,
-            "data": [tenant.to_dict(include_tenat=False)],
+            "data": [tenant.to_dict()],
             "success": True,
         }
 
@@ -131,7 +131,7 @@ async def get_tenant(
 
     # Fetch all tenants with pagination
     result = await db.execute(select(Tenant).offset(offset).limit(limit))
-    tenants = result.scalars().all()
+    tenants = result.unique().scalars().all()
 
     return {
         "message": "Tenants fetched successfully",
