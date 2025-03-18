@@ -60,7 +60,7 @@ class Role(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, index=True)
     role_name = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-
+    description = Column(String(500), nullable=True)
     # Foreign key to Tenant
     tenant_id = Column(
         UUID(as_uuid=True), ForeignKey("auth_tenants.tenant_id"), nullable=False
@@ -76,6 +76,7 @@ class Role(Base):
     def to_dict(self):
         return {
             "id": self.id,
+            "description":self.description,
             "role_name": self.role_name,
             "is_active": self.is_active,
             "permissions": [permission.to_dict() for permission in self.permissions],

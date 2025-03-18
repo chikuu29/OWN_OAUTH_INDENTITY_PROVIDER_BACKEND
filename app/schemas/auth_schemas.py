@@ -55,6 +55,7 @@ class RoleCreate(BaseModel):
     role_name: str
     is_active: bool = True
     tenant_id: uuid.UUID
+    description: str | None = None
     permissions: Optional[List[PermissionCreate]] = []
 
 class PermissionBulkCreate(BaseModel):

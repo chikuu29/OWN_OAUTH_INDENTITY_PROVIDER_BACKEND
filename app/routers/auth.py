@@ -20,6 +20,7 @@ from app.schemas.auth_schemas import (
 from app.controllers.auth_controller import authenticateLoginUser
 from app.core.osecurity import create_jwt_token, verify_token
 from sqlalchemy.orm import joinedload, selectinload
+from uuid import UUID
 
 # OAuth2 token URL
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -216,6 +217,7 @@ async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db))
         role_name=role_data.role_name,
         is_active=role_data.is_active,
         tenant_id=role_data.tenant_id,
+        description=role_data.description
     )
     db.add(new_role)
     await db.commit()
@@ -235,6 +237,24 @@ async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db))
     return {"message": "Role created successfully", "role_id": new_role.id}
 
 
+@router.get("/roles/{tenant_id}", response_model=APIResponse)
+async def get_roles(tenant_id: UUID, db: AsyncSession = Depends(get_db)):
+    # Fetch tenant by tenant_id with roles
+    result = await db.execute(select(Role).filter(Role.tenant_id == tenant_id))
+    roles = result.scalars().unique().all()
+
+    # Check if tenant exists
+    if not roles:
+        return ResponseHandler.error(message="Roles not found")
+        # raise HTTPException(status_code=404, detail="roles not found")
+
+    # Extract roles for the specific tenant
+    # roles = [{roles:role.role_name,permissions:role} for role in tenant.roles]
+    roles_data = [role.to_dict() for role in roles]
+    return APIResponse(success=True, data=roles_data, message="Roles fetched successfully")
+    return {"success": True, "data": roles_data}
+
+
 @router.post("/permissions/")
 async def create_permissions(
     permission_data: PermissionBulkCreate, db: AsyncSession = Depends(get_db)
@@ -251,7 +271,8 @@ async def create_permissions(
         select(Permission).filter(Permission.role_id == permission_data.role_id)
     )
     existing_permission_names = {
-        permission.permission_name for permission in existing_permissions.scalars().all()
+        permission.permission_name
+        for permission in existing_permissions.scalars().all()
     }
     print("existing_permission_names", existing_permission_names)
     # Validate and create new permissions
@@ -275,7 +296,6 @@ async def create_permissions(
                 role_id=permission_data.role_id,
             )
         )
-
 
     print("new_permissions", new_permissions)
     # If no valid new permissions, return an error

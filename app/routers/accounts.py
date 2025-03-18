@@ -12,7 +12,7 @@ from app.controllers.account_controller import create_tenant, register_user
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import ResponseHandler, APIResponse
-from app.models.tenant import Tenant
+from app.models.tenant import Role, Tenant
 from app.schemas.auth_schemas import UserRegisterSchema
 from app.core.db_helpers import model_to_dict
 from sqlalchemy.orm import selectinload
@@ -153,7 +153,7 @@ async def get_tenants_with_roles(db: AsyncSession = Depends(get_db)):
     # Transform data to desired structure
     tenants_with_roles = [
         {
-            "id": tenant.tenant_id,
+            "tenant_id": tenant.tenant_id,
             "name": tenant.tenant_name,
             "roles": [role.role_name for role in tenant.roles],
             "isActive": tenant.tenant_active,
