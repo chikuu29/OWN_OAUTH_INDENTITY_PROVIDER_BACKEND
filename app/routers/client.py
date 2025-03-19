@@ -95,7 +95,7 @@ async def update_oauth_client(client_id: str, payload: OAuthClientUpdate, db: Se
 
     client.updated_at = datetime.now()
 
-    db.commit()
-    db.refresh(client)
+    await db.commit()  # Ensure commit is awaited
+    await db.refresh(client) 
 
     return {"message": "Client updated successfully", "client": client.to_dict()}
