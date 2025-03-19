@@ -17,4 +17,8 @@ COPY . .
 # Expose the port FastAPI runs on
 EXPOSE 8000
 
-CMD ["fastapi", "run", "app/main.py", "--port", "8000"]
+# CMD ["fastapi", "run", "app/main.py", "--port", "8000"]
+
+
+# Run Alembic migrations and start the FastAPI app
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
