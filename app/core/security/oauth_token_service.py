@@ -42,7 +42,15 @@ def generate_auth_code(length=32, expires_in=300):
     expires_at = datetime.now() + timedelta(seconds=expires_in)
 
     return auth_code, expires_at
-
+# Recursive function to convert datetime to ISO string
+def convert_datetime_to_iso(obj):
+    if isinstance(obj, datetime.datetime):
+        return obj.isoformat()  # Convert datetime to ISO format
+    elif isinstance(obj, dict):
+        return {k: convert_datetime_to_iso(v) for k, v in obj.items()}  # Recurse for dict
+    elif isinstance(obj, list):
+        return [convert_datetime_to_iso(item) for item in obj]  # Recurse for list
+    return obj 
 
 def generate_oauth_tokens(
     payload: dict, include_refresh: bool = True, include_id_token: bool = True
@@ -60,6 +68,8 @@ def generate_oauth_tokens(
     """
     private_key, kid = get_active_private_key()
     print("====PAYLOAD===", payload)
+    payload = convert_datetime_to_iso(payload)
+    print("====AFTER PAYLOAD===", payload)
 
     # print("===PRIVATE_KEY===", private_key)
     # print("===kid===", kid)
