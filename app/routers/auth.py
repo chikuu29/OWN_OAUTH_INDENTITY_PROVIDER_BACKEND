@@ -18,7 +18,8 @@ from app.schemas.auth_schemas import (
     RoleCreate,
 )
 from app.controllers.auth_controller import authenticateLoginUser
-from app.core.osecurity import create_jwt_token, verify_token
+# from app.core.osecurity import create_jwt_token, verify_token
+from app.core.security.oauth_token_service import validate_token
 from sqlalchemy.orm import joinedload, selectinload
 from uuid import UUID
 
@@ -33,7 +34,7 @@ router = APIRouter(
 
 # Dependency to extract and verify the access token
 def get_current_user(access_token: str = Depends(oauth2_scheme)):
-    return verify_token(access_token, "REFRESH_SECRET_KEY")
+    return validate_token(access_token)
 
 
 # 🚀 Login User & Get Tokens
