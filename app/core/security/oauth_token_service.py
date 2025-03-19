@@ -41,7 +41,7 @@ def generate_auth_code(length=32, expires_in=300):
     # Calculate expiration time
     expires_at = datetime.now() + timedelta(seconds=expires_in)
 
-    return auth_code, expires_at
+    return auth_code, expires_at.isoformat()
 # Recursive function to convert datetime to ISO string
 
 

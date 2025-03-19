@@ -67,10 +67,10 @@ async def authorize(
 
         validateClient = await validateClientDetails(OauthRequest, current_user, db)
         validateClient["OauthRequest"] = OauthRequest.dict()
-        expires_at = datetime.utcnow() + timedelta(seconds=59)
+        expires_at = datetime.now() + timedelta(seconds=59)
         OAUTH_FLOW_USER_CONSENT_STORAGE[validateClient.get("client_id")] = {
             **validateClient,
-            **{"expires_at": expires_at},
+            **{"expires_at": expires_at.isoformat()},
             **{"login_user": current_user},
         }
         print("OAUTH_FLOW_USER_CONSENT_STORAGE", OAUTH_FLOW_USER_CONSENT_STORAGE)
@@ -287,7 +287,7 @@ async def token_endpoint(request: TokenRequest, db: AsyncSession = Depends(get_d
             print("===expires_at", expires_at)
             # if datetime.now() < expires_at:
 
-            if request.code == auth_code and datetime.now() < expires_at:
+            if request.code == auth_code and datetime.now() < datetime.fromisoformat(expires_at):
                 access_token, refresh_token, id_token, refresh_exp, id_token_exp = (
                     generate_oauth_tokens(identity)
                 )
