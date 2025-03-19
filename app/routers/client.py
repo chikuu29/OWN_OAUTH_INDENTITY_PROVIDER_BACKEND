@@ -1,9 +1,10 @@
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.client import OAuthClient
-from app.schemas.client import OAuthClientCreate
+from app.schemas.client import OAuthClientCreate, OAuthClientUpdate
 
 # from app.con.client import create_oauth_client
 from app.controllers.application_controller import create_oauth_client
@@ -70,3 +71,31 @@ async def get_oauth_clients(
         "data": [client.to_dict() for client in clients],
         "success":True
     }
+
+
+
+@router.put("/clients/{client_id}", response_model=dict)
+async def update_oauth_client(client_id: str, payload: OAuthClientUpdate, db: Session = Depends(get_db)):
+    client = await db.execute(
+        select(OAuthClient).filter(OAuthClient.client_id == client_id)
+    )
+    client = client.scalars().first()
+    # client = await db.execute(select(OAuthClient)).filter(OAuthClient.client_id == client_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    # Update fields if provided
+    update_data = payload.dict(exclude_unset=True)
+
+    if "client_secret" in update_data:
+        client.validate_and_hash_client_secret("client_secret", update_data["client_secret"])
+
+    for field, value in update_data.items():
+        setattr(client, field, value)
+
+    client.updated_at = datetime.now()
+
+    db.commit()
+    db.refresh(client)
+
+    return {"message": "Client updated successfully", "client": client.to_dict()}

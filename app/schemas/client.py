@@ -16,3 +16,23 @@ class OAuthClientCreate(BaseModel):
     response_types: List[str]  # Added this field to match the new model
     grant_types: List[str]  # Added this field to match the new model
     algorithm: Optional[str] = "HS256"  # Default value as "HS256"
+
+
+
+
+
+
+class OAuthClientUpdate(BaseModel):
+    client_name: Optional[str] = None
+    client_secret: Optional[str] = None
+    client_type: Optional[str] = None
+    authorization_grant_types: Optional[List[str]] = None
+    redirect_urls: Optional[List[str]] = None
+    post_logout_redirect_urls: Optional[List[str]] = None
+    skip_authorization: Optional[bool] = None
+    allowed_origins: Optional[List[str]] = None
+    token_endpoint_auth_method: Optional[str] = None
+    scope: Optional[List[str]] = None
+    response_types: Optional[List[str]] = None
+    grant_types: Optional[List[str]] = None
+    algorithm: Optional[str] = None
