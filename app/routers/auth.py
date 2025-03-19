@@ -34,7 +34,7 @@ router = APIRouter(
 
 # Dependency to extract and verify the access token
 def get_current_user(access_token: str = Depends(oauth2_scheme)):
-    return validate_token(access_token)
+    return validate_token(TOKEN=access_token)
 
 
 # 🚀 Login User & Get Tokens
