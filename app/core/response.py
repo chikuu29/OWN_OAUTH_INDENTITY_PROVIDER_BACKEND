@@ -153,6 +153,10 @@ class ResponseHandler:
             formatError = {}
             for error in exc.errors():
                 # print(error)
+                if len(error["loc"]) < 2:
+                    formatError["body"] = {"error": "Request body is missing or invalid"},
+                    continue
+
                 _, field = error["loc"]
                 if _ not in formatError:
                     formatError[_] = {}
