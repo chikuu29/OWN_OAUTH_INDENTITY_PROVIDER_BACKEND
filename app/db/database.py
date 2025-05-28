@@ -2,7 +2,6 @@
 # from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker,DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-import os
 from app.config import DATABASE_URL
 # load_dotenv()
 
@@ -24,7 +23,7 @@ class Base(DeclarativeBase):
 
 async def get_db():
     async with AsyncSessionLocal() as session:
-        print(f"😄===DATABASE CONNECTION SUCCESSFULL===")
+        print(f"=== ✅ DATABASE CONNECTION SUCCESSFULL ✅ ===")
         yield session
     # db = SessionLocal()
     # try:

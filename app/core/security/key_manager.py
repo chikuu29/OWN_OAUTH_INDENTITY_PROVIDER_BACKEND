@@ -9,7 +9,6 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 
 KEYS_DIR = "keys"  # Directory for storing private keys
-print("OS PATH",os.path)
 os.makedirs(KEYS_DIR, exist_ok=True)
 # Store keys persistently
 KEYS_FILE = os.path.join(KEYS_DIR, "keys.json") 
