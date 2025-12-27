@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import enum
 from sqlalchemy import (
     ARRAY,
@@ -10,11 +10,22 @@ from sqlalchemy import (
     Integer,
     String,
     Table,
-    Enum
+    Enum,
+    func,
+    UniqueConstraint
 )
 from app.db.database import Base
 import uuid
 from sqlalchemy.orm import relationship
+
+
+class TenantStatusEnum(str, enum.Enum):
+    invited = "invited"
+    active = "active"
+    suspended = "suspended"
+    deleted = "deleted"
+    pending = "pending"
+
 
 # Enum for Permission Scope
 class ScopeEnum(str, enum.Enum):
@@ -24,84 +35,129 @@ class ScopeEnum(str, enum.Enum):
     delete = "delete"
 
 
+class DeploymentEnum(str, enum.Enum):
+    shared = "shared"
+    dedicated = "dedicated"
+
+
 class Tenant(Base):
     __tablename__ = "auth_tenants"
 
-    id = Column(
-        Integer, primary_key=True, autoincrement=True, index=True
-    )  # Explicitly defined auto-increment ID
-    tenant_id = Column(
-        UUID(as_uuid=True), unique=True, default=uuid.uuid4, nullable=False
-    )  # UUID for external use
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tenant_uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+
     tenant_name = Column(String(255), unique=True, nullable=False)
-    tenant_email = Column(String, unique=True, nullable=False)
-    tenant_active = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    tenant_email = Column(String(255), unique=True, nullable=False)
+
+    is_active = Column(Boolean, default=False, nullable=False)
+
+    status = Column(
+        Enum(TenantStatusEnum, name="tenant_status_enum"),
+        default=TenantStatusEnum.invited,
+        nullable=False,
     )
-    # Relationship with Role
-    roles = relationship("Role", back_populates="tenant", cascade="all, delete-orphan",lazy='selectin')
+
+    deployment_type = Column(
+        Enum(DeploymentEnum, name="deployment_enum"),
+        default=DeploymentEnum.shared,
+        nullable=False,
+    )
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    roles = relationship(
+        "Role",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+    subscription = relationship(
+        "Subscription",
+        back_populates="tenant",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self):
         return {
-            "tenant_id": str(self.tenant_id),  # Convert UUID to string
-            "tenant_email": self.tenant_email,
+            "tenant_uuid": str(self.tenant_uuid),
             "tenant_name": self.tenant_name,
-            "created_at": self.created_at,
-            "tenant_active": self.tenant_active
-            # "roles": [role.to_dict() for role in self.roles],
+            "tenant_email": self.tenant_email,
+            "is_active": self.is_active,
+            "status": self.status.value,
+            "deployment_type": self.deployment_type.value,
+            "created_at": self.created_at.isoformat() if self.created_at else None
         }
 
 
 class Role(Base):
     __tablename__ = "auth_roles"
-
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    role_name = Column(String(255), nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    description = Column(String(500), nullable=True)
-    # Foreign key to Tenant
-    tenant_id = Column(
-        UUID(as_uuid=True), ForeignKey("auth_tenants.tenant_id"), nullable=False
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "role_name", name="uq_role_per_tenant"),
     )
 
-    # Relationship back to Tenant
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    role_name = Column(String(255), nullable=False)
+    description = Column(String(500))
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    tenant_id = Column(
+        Integer,
+        ForeignKey("auth_tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     tenant = relationship("Tenant", back_populates="roles")
-    # One-to-Many Relationship with Permission
+
     permissions = relationship(
-        "Permission", back_populates="role", cascade="all, delete-orphan",lazy='joined'
+        "Permission",
+        back_populates="role",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
 
     def to_dict(self):
         return {
             "id": self.id,
-            "description":self.description,
             "role_name": self.role_name,
+            "description": self.description,
             "is_active": self.is_active,
-            "permissions": [permission.to_dict() for permission in self.permissions],
+            "permissions": [p.to_dict() for p in self.permissions],
         }
 
 
 class Permission(Base):
-    __tablename__ = 'auth_permissions'
+    __tablename__ = "auth_permissions"
+    __table_args__ = (
+        UniqueConstraint("role_id", "permission_name", name="uq_permission_per_role"),
+    )
 
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
     permission_name = Column(String(255), nullable=False)
-      # Use ARRAY to store multiple scopes (for PostgreSQL)
-    scopes = Column(ARRAY(String), nullable=False)    # Enum for read, write, edit, delete
-    description = Column(String(500), nullable=True)
 
-    # Foreign key to Role
-    role_id = Column(Integer, ForeignKey('auth_roles.id'), nullable=False)
+    scopes = Column(ARRAY(String), nullable=False)
+    description = Column(String(500))
 
-    # Relationship back to Role
+    role_id = Column(
+        Integer,
+        ForeignKey("auth_roles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     role = relationship("Role", back_populates="permissions")
 
     def to_dict(self):
         return {
             "id": self.id,
             "permission_name": self.permission_name,
-            "scopes": self.scopes,  # Return enum value
+            "scopes": [scope.value for scope in self.scopes],
             "description": self.description,
         }
+

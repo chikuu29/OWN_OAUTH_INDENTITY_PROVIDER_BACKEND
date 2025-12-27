@@ -9,6 +9,7 @@ from app.models.auth import User, UserProfile
 
 from passlib.context import CryptContext
 
+
 pwd_context = CryptContext(schemes=["bcrypt"])
 
 
@@ -38,6 +39,8 @@ async def create_tenant(db: Session, client: TenantCreate):
 
     # Refresh to load the latest state of the client object
     await db.refresh(db_client)
+
+    
 
     return db_client
 

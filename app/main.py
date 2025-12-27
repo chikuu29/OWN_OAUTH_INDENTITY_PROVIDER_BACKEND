@@ -8,6 +8,7 @@ from app.routers.client import router as OAuthClient_router
 from app.routers.oauth import router as OAuth_router
 from app.routers.accounts import router as AuthRegister_router
 from app.routers.auth import router as AuthLogin_router
+from app.routers.plans import router as Plans_router
 from app.core.response import ResponseHandler
 from app.middlewares.loggerMiddleware import LoggerMiddleware
 from typing import Union
@@ -82,3 +83,4 @@ app.include_router(OAuth_router)
 app.include_router(OAuthClient_router)
 app.include_router(AuthRegister_router)
 app.include_router(AuthLogin_router)
+app.include_router(Plans_router)
