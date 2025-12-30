@@ -25,8 +25,8 @@ from sqlalchemy.orm import selectinload
 from app.services.email_service import send_tenant_registration_email
 from app.schemas.tenant_link import TenantLinkOut
 from app.schemas.tenant_link import ActivationComplete
-from app.models.subscriptions import Subscription, SubscriptionStatusEnum
-from app.models.plan import Plan
+from app.models.subscriptions import Subscription
+from app.models.plans import Plan
 from app.models.tenant import TenantStatusEnum
 # tenant link helpers imported above
 
@@ -220,74 +220,74 @@ async def validate_activation_link(token: str, db: AsyncSession = Depends(get_db
         return ResponseHandler.error(message="Failed to validate link", error_details={"detail": str(e)})
 
 
-@router.post("/activate/{token}/complete", response_model=APIResponse)
-async def complete_activation(token: str, payload: ActivationComplete, db: AsyncSession = Depends(get_db)):
-    try:
-        link = await get_tenant_link(db, token)
-        if not link:
-            return ResponseHandler.not_found(message="Activation link not found")
+# @router.post("/activate/{token}/complete", response_model=APIResponse)
+# async def complete_activation(token: str, payload: ActivationComplete, db: AsyncSession = Depends(get_db)):
+#     try:
+#         link = await get_tenant_link(db, token)
+#         if not link:
+#             return ResponseHandler.not_found(message="Activation link not found")
 
-        if link.is_used:
-            return ResponseHandler.error(message="Activation link already used", error_details={"token": token})
+#         if link.is_used:
+#             return ResponseHandler.error(message="Activation link already used", error_details={"token": token})
 
-        if link.expires_at and link.expires_at < datetime.now(timezone.utc):
-            return ResponseHandler.error(message="Activation link expired", error_details={"token": token})
+#         if link.expires_at and link.expires_at < datetime.now(timezone.utc):
+#             return ResponseHandler.error(message="Activation link expired", error_details={"token": token})
 
-        # Activate tenant
-        result = await db.execute(select(Tenant).filter(Tenant.id == link.tenant_id))
-        tenant = result.scalars().first()
-        if not tenant:
-            return ResponseHandler.not_found(message="Tenant not found for link", error_details={"tenant_id": link.tenant_id})
+#         # Activate tenant
+#         result = await db.execute(select(Tenant).filter(Tenant.id == link.tenant_id))
+#         tenant = result.scalars().first()
+#         if not tenant:
+#             return ResponseHandler.not_found(message="Tenant not found for link", error_details={"tenant_id": link.tenant_id})
 
-        # If a plan is provided, create subscription
-        subscription_info = None
-        if payload.plan_uuid:
-            plan = await get_plan(db, payload.plan_uuid)
-            if not plan:
-                return ResponseHandler.not_found(message="Plan not found", error_details={"plan_uuid": str(payload.plan_uuid)})
+#         # If a plan is provided, create subscription
+#         subscription_info = None
+#         if payload.plan_uuid:
+#             plan = await get_plan(db, payload.plan_uuid)
+#             if not plan:
+#                 return ResponseHandler.not_found(message="Plan not found", error_details={"plan_uuid": str(payload.plan_uuid)})
 
-            start_date = datetime.now(timezone.utc)
-            if getattr(plan.billing_cycle, "value", str(plan.billing_cycle)) == "monthly":
-                end_date = start_date + timedelta(days=30)
-            else:
-                end_date = start_date + timedelta(days=365)
+#             start_date = datetime.now(timezone.utc)
+#             if getattr(plan.billing_cycle, "value", str(plan.billing_cycle)) == "monthly":
+#                 end_date = start_date + timedelta(days=30)
+#             else:
+#                 end_date = start_date + timedelta(days=365)
 
-            subscription = Subscription(
-                tenant_id=tenant.id,
-                plan_id=plan.id,
-                status=SubscriptionStatusEnum.active,
-                start_date=start_date,
-                end_date=end_date,
-                currency=plan.currency,
-                country=plan.country,
-                auto_renew=True,
-            )
-            db.add(subscription)
-            await db.commit()
-            await db.refresh(subscription)
-            subscription_info = {
-                "id": subscription.id,
-                "plan_id": subscription.plan_id,
-                "start_date": subscription.start_date.isoformat() if subscription.start_date else None,
-                "end_date": subscription.end_date.isoformat() if subscription.end_date else None,
-            }
+#             subscription = Subscription(
+#                 tenant_id=tenant.id,
+#                 plan_id=plan.id,
+#                 status=SubscriptionStatusEnum.active,
+#                 start_date=start_date,
+#                 end_date=end_date,
+#                 currency=plan.currency,
+#                 country=plan.country,
+#                 auto_renew=True,
+#             )
+#             db.add(subscription)
+#             await db.commit()
+#             await db.refresh(subscription)
+#             subscription_info = {
+#                 "id": subscription.id,
+#                 "plan_id": subscription.plan_id,
+#                 "start_date": subscription.start_date.isoformat() if subscription.start_date else None,
+#                 "end_date": subscription.end_date.isoformat() if subscription.end_date else None,
+#             }
 
-        # Mark tenant active
-        tenant.is_active = True
-        tenant.status = TenantStatusEnum.active
-        await db.commit()
+#         # Mark tenant active
+#         tenant.is_active = True
+#         tenant.status = TenantStatusEnum.active
+#         await db.commit()
 
-        # Mark link used
-        await mark_link_used(db, link)
+#         # Mark link used
+#         await mark_link_used(db, link)
 
-        response_data = {"tenant": tenant.to_dict()}
-        if subscription_info:
-            response_data["subscription"] = subscription_info
+#         response_data = {"tenant": tenant.to_dict()}
+#         if subscription_info:
+#             response_data["subscription"] = subscription_info
 
-        return ResponseHandler.success(message="Activation completed", data=[response_data])
+#         return ResponseHandler.success(message="Activation completed", data=[response_data])
 
-    except Exception as e:
-        return ResponseHandler.error(message="Failed to complete activation", error_details={"detail": str(e)})
+#     except Exception as e:
+#         return ResponseHandler.error(message="Failed to complete activation", error_details={"detail": str(e)})
 
 
 

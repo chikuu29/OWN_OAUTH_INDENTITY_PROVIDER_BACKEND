@@ -23,7 +23,7 @@ class TenantLink(Base):
     token_hash = Column(String(128), index=True, nullable=False)
     tenant_id = Column(
         Integer,
-        ForeignKey("auth_tenants.id", ondelete="CASCADE"),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )

@@ -2,7 +2,7 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func
 from uuid import UUID
-from app.models.plan import Plan as PlanModel
+from app.models.plans import Plan as PlanModel
 from app.schemas.plan import PlanCreate
 
 

@@ -39,7 +39,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     phone_number = Column(String(20), nullable=False)
     hashed_password = Column(String, nullable=False)
-    tenant_id = Column(Integer, ForeignKey("auth_tenants.id"), nullable=False)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
     tenant = relationship("Tenant", backref="users")
     profile = relationship("UserProfile", uselist=False, back_populates="user")  # One-to-One Relationship

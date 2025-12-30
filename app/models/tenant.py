@@ -41,7 +41,7 @@ class DeploymentEnum(str, enum.Enum):
 
 
 class Tenant(Base):
-    __tablename__ = "auth_tenants"
+    __tablename__ = "tenants"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     tenant_uuid = Column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
@@ -108,7 +108,7 @@ class Role(Base):
 
     tenant_id = Column(
         Integer,
-        ForeignKey("auth_tenants.id", ondelete="CASCADE"),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
