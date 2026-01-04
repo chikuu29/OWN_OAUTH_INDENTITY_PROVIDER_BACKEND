@@ -66,6 +66,10 @@ class Plan(Base):
     # Relationships
     versions = relationship("PlanVersion", back_populates="plan", cascade="all, delete-orphan")
 
+    @property
+    def current_version(self):
+        return next((v for v in self.versions if v.is_current), None)
+
 # 4.2 plan_versions (Immutable Contract)
 class PlanVersion(Base):
     __tablename__ = "saas_plan_versions"
@@ -83,6 +87,11 @@ class PlanVersion(Base):
     country = Column(Enum(CountryEnum), nullable=False, default=CountryEnum.IN)
     billing_cycle = Column(Enum(BillingCycleEnum), nullable=False, default=BillingCycleEnum.monthly)
     
+    # Limits (moved to version level)
+    max_users = Column(Integer, nullable=True)
+    max_branches = Column(Integer, nullable=True)
+    storage_limit_gb = Column(Integer, nullable=True)
+
     effective_from = Column(Date, default=date.today)
     is_current = Column(Boolean, default=True)
 

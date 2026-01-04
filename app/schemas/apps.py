@@ -36,6 +36,12 @@ class AppOut(AppBase):
     id: UUID
     pricing: List[AppPricingOut]
     features: List[FeatureOut]
+    
+    # Root level pricing (resolved from records or defaults)
+    base_price: Decimal = 1000.00
+    primary_currency: CurrencyEnum = CurrencyEnum.INR
+    primary_country: CountryEnum = CountryEnum.IN
+    
     created_at: datetime
     updated_at: datetime
 

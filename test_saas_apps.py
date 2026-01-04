@@ -57,7 +57,11 @@ def test_register_and_get_apps():
         print(json.dumps(response.json(), indent=2))
         
         assert response.status_code == 200
-        assert response.json()["success"] is True
+        data = response.json()["data"][0]
+        assert "base_price" in data
+        assert "primary_currency" in data
+        assert "primary_country" in data
+        print(f"Verified root pricing: {data['base_price']} {data['primary_currency']} ({data['primary_country']})")
 
         # 2. Get Apps
         print("\n--- Testing List Apps ---")

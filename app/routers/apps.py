@@ -6,6 +6,7 @@ from typing import List
 from app.db.database import get_db
 from app.models.apps import App, AppPricing
 from app.models.features import Feature
+from app.models.plans import CountryEnum, CurrencyEnum
 from app.schemas.apps import AppCreate, AppOut
 from app.core.response import ResponseHandler, APIResponse
 from sqlalchemy.orm import selectinload
@@ -68,8 +69,21 @@ async def register_app(app_data: AppCreate, db: AsyncSession = Depends(get_db)):
         )
         final_app = result.scalars().first()
         
+        # Resolve root pricing for response (Mandatory INR)
+        app_out = AppOut.from_orm(final_app)
+        inr_pricing = next((p for p in final_app.pricing if p.is_active and p.currency == CurrencyEnum.INR), None)
+        
+        if inr_pricing:
+            app_out.base_price = inr_pricing.price
+            app_out.primary_currency = inr_pricing.currency
+            app_out.primary_country = inr_pricing.country
+        else:
+            app_out.base_price = 1000.00  # Fallback as requested
+            app_out.primary_currency = CurrencyEnum.INR
+            app_out.primary_country = CountryEnum.IN
+            
         return ResponseHandler.success(
-            data=jsonable_encoder([AppOut.from_orm(final_app)]), 
+            data=jsonable_encoder([app_out]), 
             message="App registered successfully"
         )
     except Exception as e:
@@ -90,9 +104,24 @@ async def list_apps(db: AsyncSession = Depends(get_db)):
         )
         apps = result.scalars().unique().all()
         
-        data = jsonable_encoder([AppOut.from_orm(app) for app in apps])
+        data_out = []
+        for app in apps:
+            app_out = AppOut.from_orm(app)
+            # Find an active INR pricing record
+            inr_pricing = next((p for p in app.pricing if p.is_active and p.currency == CurrencyEnum.INR), None)
+            
+            if inr_pricing:
+                app_out.base_price = inr_pricing.price
+                app_out.primary_currency = inr_pricing.currency
+                app_out.primary_country = inr_pricing.country
+            else:
+                app_out.base_price = 1000.00  # Fallback as requested
+                app_out.primary_currency = CurrencyEnum.INR
+                app_out.primary_country = CountryEnum.IN
+            data_out.append(app_out)
+
         return ResponseHandler.success(
-            data=data, 
+            data=jsonable_encoder(data_out), 
             message="Apps retrieved successfully"
         )
     except Exception as e:
