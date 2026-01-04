@@ -19,7 +19,7 @@ async def create_tenant(db: Session, client: TenantCreate):
     result = await db.execute(
         select(Tenant).filter(
             or_(
-                Tenant.tenant_name == client.tenant_name,
+                Tenant.tenant_name == str(client.tenant_name).lower(),
                 Tenant.tenant_email
                 == client.tenant_email,  # Either name or email should be unique
             )
@@ -31,7 +31,7 @@ async def create_tenant(db: Session, client: TenantCreate):
         raise ValueError("Tenant with this name or email already exists")
 
     # Create a new OAuth client
-    db_client = Tenant(tenant_name=client.tenant_name, tenant_email=client.tenant_email)
+    db_client = Tenant(tenant_name=str(client.tenant_name).lower(), tenant_email=client.tenant_email)
 
     # Add and commit the new client to the database asynchronously
     db.add(db_client)

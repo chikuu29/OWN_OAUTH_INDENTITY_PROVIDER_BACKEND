@@ -1,7 +1,8 @@
 from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from typing import List, Optional
+from fastapi.encoders import jsonable_encoder
+from typing import List, Optional, Union, Any
 from pydantic import BaseModel
 from fastapi import status  # To use HTTP status codes like 404, 403, etc.
 
@@ -11,7 +12,7 @@ class APIResponse(BaseModel):
     login_info: Optional[dict] = None
     success: bool
     message: str
-    data: Optional[List[dict]] = None  # Can be an empty list or a list of clients
+    data: Optional[Union[List, dict, str, int, float, bool]] = None  # Flexible data type
     error: Optional[dict] = None  # Optional error details, default is None
 
 
@@ -19,7 +20,7 @@ class ResponseHandler:
 
     @staticmethod
     def success(
-        message: str, data: List[dict] = None, login_info: Optional[dict] = None
+        message: str, data: Any = None, login_info: Optional[dict] = None
     ) -> JSONResponse:
         """
         Return a successful response.
@@ -41,7 +42,7 @@ class ResponseHandler:
             error={},
         )
         return JSONResponse(
-            content=response_data.dict(), status_code=status.HTTP_200_OK
+            content=jsonable_encoder(response_data), status_code=status.HTTP_200_OK
         )
 
     @staticmethod
@@ -65,7 +66,7 @@ class ResponseHandler:
             error=error_details,
         )
         return JSONResponse(
-            content=response_data.dict(), status_code=status.HTTP_400_BAD_REQUEST
+            content=jsonable_encoder(response_data), status_code=status.HTTP_400_BAD_REQUEST
         )
 
     @staticmethod
@@ -115,7 +116,7 @@ class ResponseHandler:
             error=error_details,
         )
         return JSONResponse(
-            content=response_data.dict(), status_code=status.HTTP_404_NOT_FOUND
+            content=jsonable_encoder(response_data), status_code=status.HTTP_404_NOT_FOUND
         )
 
     @staticmethod
@@ -139,7 +140,7 @@ class ResponseHandler:
             error=error_details,
         )
         return JSONResponse(
-            content=response_data.dict(), status_code=status.HTTP_403_FORBIDDEN
+            content=jsonable_encoder(response_data), status_code=status.HTTP_403_FORBIDDEN
         )
 
     @staticmethod
@@ -174,7 +175,7 @@ class ResponseHandler:
                 error=formatError,
             )
             return JSONResponse(
-                content=response_data.dict(), status_code=status.HTTP_400_BAD_REQUEST
+                content=jsonable_encoder(response_data), status_code=status.HTTP_400_BAD_REQUEST
             )
 
         # Handle other exceptions as a general internal server error
@@ -184,4 +185,4 @@ class ResponseHandler:
                 message="Internal Server Error",
                 error={"detail": str(exc)},
             )
-            return JSONResponse(content=response_data.to_dict(), status_code=500)
+            return JSONResponse(content=jsonable_encoder(response_data), status_code=500)

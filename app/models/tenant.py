@@ -11,6 +11,8 @@ from sqlalchemy import (
     String,
     Table,
     Enum,
+    Date,
+    Numeric,
     func,
     UniqueConstraint
 )
@@ -82,9 +84,16 @@ class Tenant(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    profile = relationship(
+        "TenantProfile",
+        back_populates="tenant",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     def to_dict(self):
-        return {
+        data = {
+            "id": self.id,
             "tenant_uuid": str(self.tenant_uuid),
             "tenant_name": self.tenant_name,
             "tenant_email": self.tenant_email,
@@ -93,6 +102,15 @@ class Tenant(Base):
             "deployment_type": self.deployment_type.value,
             "created_at": self.created_at.isoformat() if self.created_at else None
         }
+        
+        # Safe check for relationship to avoid greenlet_spawn error in async
+        from sqlalchemy import inspect
+        state = inspect(self)
+        if "profile" not in state.unloaded and "profile" not in state.expired:
+            if self.profile:
+                data["profile"] = self.profile.to_dict()
+                
+        return data
 
 
 class Role(Base):
@@ -159,5 +177,80 @@ class Permission(Base):
             "permission_name": self.permission_name,
             "scopes": [scope.value for scope in self.scopes],
             "description": self.description,
+        }
+
+
+class TenantProfile(Base):
+    __tablename__ = "tenant_profiles"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tenant_id = Column(
+        Integer,
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    # Business Details
+    legal_name = Column(String(255))
+    industry = Column(String(100))
+    tax_id = Column(String(50))
+    website = Column(String(255))
+    phone = Column(String(20))
+    business_email = Column(String(255))
+
+    # Address Information
+    address_line1 = Column(String(255))
+    address_line2 = Column(String(255))
+    city = Column(String(100))
+    state = Column(String(100))
+    country = Column(String(100))
+    pincode = Column(String(20))
+
+    # Additional Business Metrics
+    owner_name = Column(String(255))
+    total_stores = Column(Integer, default=1)
+    main_branch = Column(String(255))
+    estimated_annual_sales = Column(String(100)) # Using string for flexibility, or Numeric if preferred
+    business_type = Column(String(100)) # Wholesale, Retail, Service, etc.
+    founding_date = Column(Date)
+    timezone = Column(String(100), default="UTC")
+    currency = Column(String(10), default="INR")
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    tenant = relationship("Tenant", back_populates="profile")
+
+    def to_dict(self):
+        return {
+            "legal_name": self.legal_name,
+            "industry": self.industry,
+            "tax_id": self.tax_id,
+            "website": self.website,
+            "phone": self.phone,
+            "business_email": self.business_email,
+            "address": {
+                "line1": self.address_line1,
+                "line2": self.address_line2,
+                "city": self.city,
+                "state": self.state,
+                "country": self.country,
+                "pincode": self.pincode,
+            },
+            "owner_name": self.owner_name,
+            "total_stores": self.total_stores,
+            "main_branch": self.main_branch,
+            "estimated_annual_sales": self.estimated_annual_sales,
+            "business_type": self.business_type,
+            "founding_date": self.founding_date.isoformat() if self.founding_date else None,
+            "timezone": self.timezone,
+            "currency": self.currency,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 

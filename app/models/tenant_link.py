@@ -7,7 +7,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     String,
-    UUID as SA_UUID,
+    UUID,
     func,
 )
 from app.db.database import Base
@@ -21,12 +21,8 @@ class TenantLink(Base):
  
     # store only the hash of the activation token (do not store the raw token)
     token_hash = Column(String(128), index=True, nullable=False)
-    tenant_id = Column(
-        Integer,
-        ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
+    
+    tenant_id= Column(UUID(as_uuid=True), ForeignKey("tenants.tenant_uuid", ondelete="CASCADE"), nullable=False)
 
     request_type = Column(String(100), default="activation")
     is_used = Column(Boolean, default=False, nullable=False)

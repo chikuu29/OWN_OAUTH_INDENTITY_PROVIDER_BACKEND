@@ -1,16 +1,18 @@
 from fastapi import APIRouter, Depends, status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List
 from app.db.database import get_db
 from app.models.apps import App, AppPricing
+from app.models.features import Feature
 from app.schemas.apps import AppCreate, AppOut
 from app.core.response import ResponseHandler, APIResponse
 from sqlalchemy.orm import selectinload
 
-router = APIRouter(prefix="/apps", tags=["Apps"])
+router = APIRouter(prefix="/saas", tags=["SAAS APPLICATIONS"])
 
-@router.post("/", response_model=APIResponse)
+@router.post("/register", response_model=APIResponse)
 async def register_app(app_data: AppCreate, db: AsyncSession = Depends(get_db)):
     try:
         # Check if app code already exists
@@ -39,18 +41,35 @@ async def register_app(app_data: AppCreate, db: AsyncSession = Depends(get_db)):
                 is_active=p.is_active
             )
             db.add(new_pricing)
+        
+        # Add Features
+        for f in app_data.features:
+            new_feature = Feature(
+                app_id=new_app.id,
+                code=f.code,
+                name=f.name,
+                description=f.description,
+                is_base_feature=f.is_base_feature,
+                addon_price=f.addon_price,
+                currency=f.currency,
+                status=f.status
+            )
+            db.add(new_feature)
 
         await db.commit()
         await db.refresh(new_app)
         
         # Reload with relationships for the response
         result = await db.execute(
-            select(App).options(selectinload(App.pricing)).filter(App.id == new_app.id)
+            select(App).options(
+                selectinload(App.pricing),
+                selectinload(App.features)
+            ).filter(App.id == new_app.id)
         )
         final_app = result.scalars().first()
         
         return ResponseHandler.success(
-            data=AppOut.from_orm(final_app), 
+            data=jsonable_encoder([AppOut.from_orm(final_app)]), 
             message="App registered successfully"
         )
     except Exception as e:
@@ -60,15 +79,18 @@ async def register_app(app_data: AppCreate, db: AsyncSession = Depends(get_db)):
             error_details={"detail": str(e)}
         )
 
-@router.get("/", response_model=APIResponse)
+@router.get("/get_apps", response_model=APIResponse)
 async def list_apps(db: AsyncSession = Depends(get_db)):
     try:
         result = await db.execute(
-            select(App).options(selectinload(App.pricing)).filter(App.is_active == True)
+            select(App).options(
+                selectinload(App.pricing),
+                selectinload(App.features)
+            ).filter(App.is_active == True)
         )
         apps = result.scalars().unique().all()
         
-        data = [AppOut.from_orm(app) for app in apps]
+        data = jsonable_encoder([AppOut.from_orm(app) for app in apps])
         return ResponseHandler.success(
             data=data, 
             message="Apps retrieved successfully"

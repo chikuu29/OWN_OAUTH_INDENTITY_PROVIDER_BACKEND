@@ -4,6 +4,7 @@ from decimal import Decimal
 from uuid import UUID
 from datetime import datetime
 from app.models.plans import CountryEnum, CurrencyEnum
+from app.schemas.features import FeatureCreate, FeatureOut
 
 class AppPricingBase(BaseModel):
     price: Decimal = Field(..., ge=0)
@@ -15,9 +16,8 @@ class AppPricingCreate(AppPricingBase):
     pass
 
 class AppPricingOut(AppPricingBase):
-    id: int
+    
     created_at: datetime
-
     class Config:
         from_attributes = True
 
@@ -30,10 +30,12 @@ class AppBase(BaseModel):
 
 class AppCreate(AppBase):
     pricing: List[AppPricingCreate] = []
+    features: List[FeatureCreate] = []
 
 class AppOut(AppBase):
     id: UUID
     pricing: List[AppPricingOut]
+    features: List[FeatureOut]
     created_at: datetime
     updated_at: datetime
 

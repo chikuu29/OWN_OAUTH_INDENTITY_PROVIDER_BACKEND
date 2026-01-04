@@ -18,7 +18,8 @@ import os
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.response import ResponseHandler, APIResponse
-from app.models.tenant import Role, Tenant
+from app.models.tenant import Role, Tenant, TenantProfile
+from app.schemas.tanent import TenantCreate, TenantProfileCreate
 from app.schemas.auth_schemas import UserRegisterSchema
 from app.core.db_helpers import model_to_dict
 from sqlalchemy.orm import selectinload
@@ -101,11 +102,16 @@ async def register_tanets(client: TenantCreate, background_tasks: BackgroundTask
         db_client = await create_tenant(db=db, client=client)
 
         # Create activation link valid for 24 hours (returns DB link and raw token)
-        link, raw_token = await create_tenant_link(db=db, tenant_id=db_client.id, hours_valid=24)
+        link, raw_token = await create_tenant_link(
+            db=db, 
+            tenant_uuid=str(db_client.tenant_uuid), 
+            hours_valid=24,
+            extra_payload=db_client.to_dict()
+        )
 
         # Build activation URL using DOMAIN_NAME env if available (send raw token)
-        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:8000")
-        activation_url = f"{DOMAIN}/account/activate/{raw_token}"
+        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173/account")
+        activation_url = f"{DOMAIN}/setup/{raw_token}"
 
         # Send activation email in background (will await coroutine when run)
         background_tasks.add_task(
@@ -193,7 +199,7 @@ async def get_tenants_with_roles(db: AsyncSession = Depends(get_db)):
     return tenants_with_roles
 
 
-@router.get("/activate/{token}", response_model=APIResponse)
+@router.get("/validate/{token}", response_model=APIResponse)
 async def validate_activation_link(token: str, db: AsyncSession = Depends(get_db)):
     try:
         link = await get_tenant_link(db, token)
@@ -206,12 +212,21 @@ async def validate_activation_link(token: str, db: AsyncSession = Depends(get_db
         if link.expires_at and link.expires_at < datetime.now(timezone.utc):
             return ResponseHandler.error(message="Activation link expired", error_details={"token": token})
 
+        # Decode the token to get the payload
+        from app.controllers.tenant_link_controller import JWT_SECRET, JWT_ALGO
+        import jwt
+        try:
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+        except Exception as e:
+             return ResponseHandler.error(message="Invalid token structure", error_details={"detail": str(e)})
+
         data = [{
             "tenant_id": link.tenant_id,
             "request_type": link.request_type,
             "is_used": link.is_used,
             "created_at": link.created_at.isoformat() if link.created_at else None,
             "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+            **payload
         }]
 
         return ResponseHandler.success(message="Activation link valid", data=data)
@@ -288,6 +303,74 @@ async def validate_activation_link(token: str, db: AsyncSession = Depends(get_db
 
 #     except Exception as e:
 #         return ResponseHandler.error(message="Failed to complete activation", error_details={"detail": str(e)})
+
+
+@router.post("/tenant/profile", response_model=APIResponse)
+async def upsert_tenant_profile(
+    profile_data: TenantProfileCreate, 
+    tenant_id: int = Query(...), 
+    db: AsyncSession = Depends(get_db)
+):
+    try:
+        # Check if tenant exists
+        result = await db.execute(select(Tenant).filter(Tenant.id == tenant_id))
+        tenant = result.scalars().first()
+        if not tenant:
+            return ResponseHandler.not_found(message="Tenant not found")
+
+        # Check if profile already exists
+        result = await db.execute(select(TenantProfile).filter(TenantProfile.tenant_id == tenant_id))
+        profile = result.scalars().first()
+
+        if profile:
+            # Update existing profile
+            has_changed = False
+            for key, value in profile_data.model_dump(exclude_unset=True).items():
+                if getattr(profile, key) != value:
+                    setattr(profile, key, value)
+                    has_changed = True
+            
+            if not has_changed:
+                return ResponseHandler.success(
+                    message="No data changed", 
+                    data=[profile.to_dict()]
+                )
+            
+            message = "Tenant profile updated successfully"
+        else:
+            # Create new profile
+            profile = TenantProfile(tenant_id=tenant_id, **profile_data.model_dump())
+            db.add(profile)
+            message = "Tenant profile created successfully"
+
+        await db.commit()
+        await db.refresh(profile)
+
+        return ResponseHandler.success(
+            message=message, 
+            data=[profile.to_dict()]
+        )
+    except Exception as e:
+        await db.rollback()
+        return ResponseHandler.error(message="Failed to update tenant profile", error_details={"detail": str(e)})
+
+
+@router.get("/tenant/profile", response_model=APIResponse)
+async def get_tenant_profile(tenant_id: int = Query(...), db: AsyncSession = Depends(get_db)):
+    try:
+        result = await db.execute(
+            select(TenantProfile).filter(TenantProfile.tenant_id == tenant_id)
+        )
+        profile = result.scalars().first()
+        if not profile:
+            return ResponseHandler.not_found(message="Tenant profile not found")
+
+        return ResponseHandler.success(
+            message="Tenant profile fetched successfully", 
+            data=[profile.to_dict()]
+        )
+    except Exception as e:
+        return ResponseHandler.error(message="Failed to fetch tenant profile", error_details={"detail": str(e)})
 
 
 

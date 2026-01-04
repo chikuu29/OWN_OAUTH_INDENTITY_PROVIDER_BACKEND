@@ -1,8 +1,8 @@
 """Init
 
-Revision ID: c9f9d55536f8
+Revision ID: 2908eb885084
 Revises: 
-Create Date: 2025-12-31 00:29:40.958951
+Create Date: 2026-01-04 15:48:15.157737
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'c9f9d55536f8'
+revision: str = '2908eb885084'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -151,16 +151,43 @@ def upgrade() -> None:
     op.create_table('tenant_links',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('token_hash', sa.String(length=128), nullable=False),
-    sa.Column('tenant_id', sa.Integer(), nullable=False),
+    sa.Column('tenant_id', sa.UUID(), nullable=False),
     sa.Column('request_type', sa.String(length=100), nullable=True),
     sa.Column('is_used', sa.Boolean(), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
-    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.tenant_uuid'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_tenant_links_tenant_id'), 'tenant_links', ['tenant_id'], unique=False)
     op.create_index(op.f('ix_tenant_links_token_hash'), 'tenant_links', ['token_hash'], unique=False)
+    op.create_table('tenant_profiles',
+    sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
+    sa.Column('tenant_id', sa.Integer(), nullable=False),
+    sa.Column('legal_name', sa.String(length=255), nullable=True),
+    sa.Column('industry', sa.String(length=100), nullable=True),
+    sa.Column('tax_id', sa.String(length=50), nullable=True),
+    sa.Column('website', sa.String(length=255), nullable=True),
+    sa.Column('phone', sa.String(length=20), nullable=True),
+    sa.Column('address_line1', sa.String(length=255), nullable=True),
+    sa.Column('address_line2', sa.String(length=255), nullable=True),
+    sa.Column('city', sa.String(length=100), nullable=True),
+    sa.Column('state', sa.String(length=100), nullable=True),
+    sa.Column('country', sa.String(length=100), nullable=True),
+    sa.Column('pincode', sa.String(length=20), nullable=True),
+    sa.Column('owner_name', sa.String(length=255), nullable=True),
+    sa.Column('total_stores', sa.Integer(), nullable=True),
+    sa.Column('main_branch', sa.String(length=255), nullable=True),
+    sa.Column('estimated_annual_sales', sa.String(length=100), nullable=True),
+    sa.Column('business_type', sa.String(length=100), nullable=True),
+    sa.Column('founding_date', sa.Date(), nullable=True),
+    sa.Column('timezone', sa.String(length=100), nullable=True),
+    sa.Column('currency', sa.String(length=10), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('tenant_id')
+    )
     op.create_table('auth_permissions',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('permission_name', sa.String(length=255), nullable=False),
@@ -258,8 +285,8 @@ def downgrade() -> None:
     op.drop_table('auth_user_profiles')
     op.drop_index(op.f('ix_auth_permissions_role_id'), table_name='auth_permissions')
     op.drop_table('auth_permissions')
+    op.drop_table('tenant_profiles')
     op.drop_index(op.f('ix_tenant_links_token_hash'), table_name='tenant_links')
-    op.drop_index(op.f('ix_tenant_links_tenant_id'), table_name='tenant_links')
     op.drop_table('tenant_links')
     op.drop_table('saas_plan_versions')
     op.drop_table('saas_features')

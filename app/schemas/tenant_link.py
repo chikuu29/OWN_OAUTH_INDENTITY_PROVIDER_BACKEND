@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 class TenantLinkOut(BaseModel):
-    tenant_id: int
+    tenant_id: UUID
     request_type: str
     is_used: bool
     created_at: Optional[datetime]
