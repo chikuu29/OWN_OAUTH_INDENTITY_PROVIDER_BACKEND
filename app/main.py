@@ -10,6 +10,7 @@ from app.routers.accounts import router as AuthRegister_router
 from app.routers.auth import router as AuthLogin_router
 from app.routers.plans import router as Plans_router
 from app.routers.apps import router as Apps_router
+from app.routers.webhooks import router as Webhooks_router
 from app.core.response import ResponseHandler
 from app.middlewares.loggerMiddleware import LoggerMiddleware
 from typing import Union
@@ -86,3 +87,4 @@ app.include_router(AuthRegister_router)
 app.include_router(AuthLogin_router)
 app.include_router(Plans_router)
 app.include_router(Apps_router)
+app.include_router(Webhooks_router)

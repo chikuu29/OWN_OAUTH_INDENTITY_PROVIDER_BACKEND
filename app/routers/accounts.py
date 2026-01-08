@@ -235,6 +235,60 @@ async def validate_activation_link(token: str, db: AsyncSession = Depends(get_db
         return ResponseHandler.error(message="Failed to validate link", error_details={"detail": str(e)})
 
 
+@router.post("/resend-activation/{token}", response_model=APIResponse)
+async def resend_activation_link(token: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """
+    Resends the activation link for a tenant if the original link has expired or reached the user.
+    Uses the old token to identify the tenant.
+    """
+    try:
+        # 1. Find the link by the old token hash
+        old_link = await get_tenant_link(db, token)
+        if not old_link:
+            return ResponseHandler.not_found(message="Original activation link not found")
+
+        # 2. Get the tenant associated with this link (link.tenant_id is the tenant_uuid)
+        result = await db.execute(select(Tenant).filter(Tenant.tenant_uuid == old_link.tenant_id))
+        tenant = result.scalars().first()
+        
+        if not tenant:
+            return ResponseHandler.not_found(message="Tenant not found for this link")
+
+        if tenant.is_active:
+             return ResponseHandler.error(message="Tenant is already active", error_details={"tenant_uuid": str(tenant.tenant_uuid)})
+
+        # 3. Create a new activation link (valid for 24 hours)
+        new_link, new_raw_token = await create_tenant_link(
+            db=db, 
+            tenant_uuid=str(tenant.tenant_uuid), 
+            hours_valid=24,
+            extra_payload=tenant.to_dict()
+        )
+
+        # 4. Build activation URL
+        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173/account")
+        activation_url = f"{DOMAIN}/setup/{new_raw_token}"
+
+        # 5. Send activation email in background
+        background_tasks.add_task(
+            send_tenant_registration_email,
+            tenant.tenant_email,
+            tenant.tenant_name,
+            activation_url,
+        )
+
+        return ResponseHandler.success(
+            message="New activation link sent successfully", 
+            data=[{"tenant_email": tenant.tenant_email}]
+        )
+
+    except Exception as e:
+        return ResponseHandler.error(
+            message="Failed to resend activation link", 
+            error_details={"detail": str(e)}
+        )
+
+
 # @router.post("/activate/{token}/complete", response_model=APIResponse)
 # async def complete_activation(token: str, payload: ActivationComplete, db: AsyncSession = Depends(get_db)):
 #     try:
