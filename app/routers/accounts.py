@@ -16,8 +16,11 @@ from app.models.subscriptions import Subscription, SubscriptionStatus, Subscript
 from datetime import datetime, timedelta, timezone
 import uuid
 import os
+from dotenv import load_dotenv
+load_dotenv()
 from sqlalchemy.ext.asyncio import AsyncSession
 import razorpay
+import json
 
 from app.core.response import ResponseHandler, APIResponse
 from app.models.tenant import Role, Tenant, TenantProfile
@@ -35,6 +38,8 @@ from app.models.features import Feature
 from app.models.tenant import TenantStatusEnum
 from app.models.transactions import Transaction, TransactionStatus
 from app.models.orders import Order, OrderStatus
+from app.models.apps import AppPricing # Added import
+from app.models.plans import CurrencyEnum, CountryEnum # Added import
 from app.schemas.payment import PaymentVerificationRequest, PaymentVerificationResponse
 # tenant link helpers imported above
 
@@ -489,19 +494,44 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
         apps_price = 0
         apps_details = []
         if payload.apps:
-            app_stmt = select(App).filter(App.id.in_(payload.apps))
+            # We need to join App with AppPricing to get the price
+            # Assuming CurrencyEnum.INR and CountryEnum.IN for now as defaults, or logic could be expanded to infer from tenant/request
+            target_currency = CurrencyEnum.INR
+            target_country = CountryEnum.IN
+
+            app_stmt = (
+                select(App, AppPricing)
+                .join(AppPricing, AppPricing.app_id == App.id)
+                .filter(
+                    App.id.in_(payload.apps),
+                    AppPricing.currency == target_currency,
+                    AppPricing.country == target_country
+                )
+            )
             app_result = await db.execute(app_stmt)
-            db_apps = app_result.scalars().all()
-            
-            for app in db_apps:
-                base_price = float(app.base_price)
+            db_apps_with_pricing = app_result.all() # returns list of (App, AppPricing) tuples
+            # specific serialization for debugging
+            debug_apps = []
+            for app, pricing in db_apps_with_pricing:
+                debug_apps.append({
+                    "app_name": app.name,
+                    "app_id": str(app.id),
+                    "price": float(pricing.price),
+                    "currency": pricing.currency,
+                    "country": pricing.country
+                })
+            print(f"Apps with Pricing: {json.dumps(debug_apps, indent=4)}")
+            print(f"Apps found: {len(db_apps_with_pricing)}")
+
+            for app, pricing in db_apps_with_pricing:
+                base_price = float(pricing.price)
                 app_snapshot = {
                     "app_id": str(app.id),
                     "name": app.name,
                     "base_price": base_price,
                     "features": []
                 }
-                
+                print(f"App: {app.name}, Base Price: {base_price} ,app_snapshot: {app_snapshot}")
                 # Addon Features
                 addon_price_sum = 0
                 if app.id in payload.features:
@@ -558,9 +588,7 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
              return ResponseHandler.error(
                  message="Price mismatch", 
                  error_details={
-                     "server_total": grand_total, 
-                     "client_total": payload.grand_total,
-                     "diff": grand_total - payload.grand_total
+                    "detail": "Price mismatch between server and Client: {} Server: {} Diff: {}".format(payload.grand_total, grand_total, grand_total - payload.grand_total)  
                  }
             )
 
@@ -591,7 +619,7 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
         
         if not razorpay_key or not razorpay_secret:
              print("Error: Razorpay keys missing")
-             return ResponseHandler.error(message="Payment gateway configuration missing")
+             return ResponseHandler.error(message="Payment gateway configuration missing",error_details={"detail": "Payment gateway configuration missing"})
 
         client = razorpay.Client(auth=(razorpay_key, razorpay_secret))
         
@@ -632,12 +660,13 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
             status=TransactionStatus.PENDING,
             plan_code=payload.plan_code,
             billing_cycle="monthly",
-            details={ # Store snapshot in transaction too
+            payment_details={ # Store snapshot in transaction too
                  "plan_price": plan_price,
                  "apps_total": apps_price,
                  "tax": tax,
                  "discount": discount_amount
-            }
+            },
+            payment_method="online"
         )
         db.add(transaction)
         await db.commit()

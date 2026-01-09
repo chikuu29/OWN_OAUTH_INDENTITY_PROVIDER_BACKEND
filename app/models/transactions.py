@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Enum, Numeric, func
+from sqlalchemy import Column, String, Integer, ForeignKey, DateTime, Enum, Numeric,JSON, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
@@ -32,7 +32,8 @@ class Transaction(Base):
     # Metadata for the plan/apps selected at time of purchase
     plan_code = Column(String(50), nullable=True)
     billing_cycle = Column(String(20), nullable=True)
-
+    payment_details = Column(JSON, nullable=True)
+    payment_method = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
