@@ -19,3 +19,7 @@ class ActivationComplete(BaseModel):
     admin_email: Optional[str] = None
     admin_username: Optional[str] = None
     admin_password: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
+    transaction_id: Optional[UUID] = None

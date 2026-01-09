@@ -1,7 +1,8 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status,BackgroundTasks
 from uuid import UUID
-from sqlalchemy import func, select
+from sqlalchemy import func, desc, or_
+from sqlalchemy.future import select
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.auth import User
@@ -11,11 +12,12 @@ from app.schemas.tanent import TenantCreate
 from app.controllers.account_controller import create_tenant, register_user
 from app.controllers.tenant_link_controller import create_tenant_link, get_tenant_link, mark_link_used
 from app.controllers.plan_controller import get_plan
-from app.models.subscriptions import Subscription
+from app.models.subscriptions import Subscription, SubscriptionStatus, SubscriptionBilling, PaymentStatus
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+import uuid
 import os
 from sqlalchemy.ext.asyncio import AsyncSession
+import razorpay
 
 from app.core.response import ResponseHandler, APIResponse
 from app.models.tenant import Role, Tenant, TenantProfile
@@ -27,8 +29,13 @@ from app.services.email_service import send_tenant_registration_email
 from app.schemas.tenant_link import TenantLinkOut
 from app.schemas.tenant_link import ActivationComplete
 from app.models.subscriptions import Subscription
-from app.models.plans import Plan
+from app.models.plans import Plan, PlanVersion
+from app.models.apps import App
+from app.models.features import Feature
 from app.models.tenant import TenantStatusEnum
+from app.models.transactions import Transaction, TransactionStatus
+from app.models.orders import Order, OrderStatus
+from app.schemas.payment import PaymentVerificationRequest, PaymentVerificationResponse
 # tenant link helpers imported above
 
 
@@ -446,3 +453,214 @@ async def get_tenant_profile(tenant_id: int = Query(...), db: AsyncSession = Dep
 
 
 
+
+@router.post("/verify-payment", response_model=APIResponse)
+async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession = Depends(get_db)):
+    print(f"========== STARTING PAYMENT VERIFICATION ==========")
+    print(f"Payload: {payload.dict()}")
+    try:
+        # 1. Fetch Tenant
+        print(f"Step 1: Fetching Tenant {payload.tenant_uuid}")
+        stmt = select(Tenant).filter(Tenant.tenant_uuid == payload.tenant_uuid)
+        result = await db.execute(stmt)
+        tenant = result.scalars().first()
+        if not tenant:
+            print(f"Error: Tenant not found")
+            return ResponseHandler.not_found(message="Tenant not found")
+
+        # 2. Server-side Price Calculation
+        print(f"Step 2: Calculating Prices")
+        # Fetch Plan
+        plan_stmt = select(PlanVersion).join(Plan).filter(Plan.plan_code == payload.plan_code).order_by(desc(PlanVersion.created_at))
+        plan_result = await db.execute(plan_stmt)
+        plan_version = plan_result.scalars().first()
+        if not plan_version:
+             # Fallback if plan_code is FREE_TRIAL or check strict
+             if payload.plan_code == "FREE_TRIAL":
+                 plan_price = 0
+             else:
+                 print(f"Error: Plan not found {payload.plan_code}")
+                 return ResponseHandler.not_found(message=f"Plan not found: {payload.plan_code}")
+        else:
+             plan_price = float(plan_version.price)
+        print(f"Plan Price: {plan_price}")
+
+        # Fetch Apps
+        apps_price = 0
+        apps_details = []
+        if payload.apps:
+            app_stmt = select(App).filter(App.id.in_(payload.apps))
+            app_result = await db.execute(app_stmt)
+            db_apps = app_result.scalars().all()
+            
+            for app in db_apps:
+                base_price = float(app.base_price)
+                app_snapshot = {
+                    "app_id": str(app.id),
+                    "name": app.name,
+                    "base_price": base_price,
+                    "features": []
+                }
+                
+                # Addon Features
+                addon_price_sum = 0
+                if app.id in payload.features:
+                    selected_feature_codes = payload.features[app.id]
+                    # We need to fetch features to get their price if they are addons
+                    feat_stmt = select(Feature).filter(Feature.app_id == app.id, Feature.code.in_(selected_feature_codes), Feature.is_base_feature == False)
+                    feat_result = await db.execute(feat_stmt)
+                    features = feat_result.scalars().all()
+                    for f in features:
+                        f_price = float(f.addon_price)
+                        addon_price_sum += f_price
+                        app_snapshot["features"].append({
+                            "code": f.code,
+                            "price": f_price
+                        })
+
+                app_total = base_price + addon_price_sum
+                apps_price += app_total
+                app_snapshot["total_price"] = app_total
+                apps_details.append(app_snapshot)
+        
+        print(f"Apps Price: {apps_price}")
+
+        subtotal = plan_price + apps_price
+        
+        # Apply Coupon
+        discount_amount = 0
+        if payload.coupon:
+            print(f"Applying Coupon: {payload.coupon.code}")
+            # Server-side validation of coupon could go here
+            code = payload.coupon.code.upper()
+            percentage = 0
+            if code == "WELCOME100": percentage = 1.0
+            elif code == "WELCOME10": percentage = 0.1
+            elif code == "SAAS20": percentage = 0.2
+            elif code == "LAUNCH50": percentage = 0.5
+            elif code == payload.coupon.code: percentage = payload.coupon.percentage # fallback
+            
+            discount_amount = subtotal * percentage
+        
+        print(f"Discount: {discount_amount}")
+
+        taxable_amount = subtotal - discount_amount
+        tax_rate = 0.18
+        tax = taxable_amount * tax_rate
+        grand_total = taxable_amount + tax
+        
+        print(f"Calculated Grand Total: {grand_total}")
+        print(f"Payload Grand Total: {payload.grand_total}")
+
+        # Verify Grand Total (Tolerance of 1.0)
+        if abs(grand_total - payload.grand_total) > 1.0:
+             print(f"ERROR: Price mismatch")
+             return ResponseHandler.error(
+                 message="Price mismatch", 
+                 error_details={
+                     "server_total": grand_total, 
+                     "client_total": payload.grand_total,
+                     "diff": grand_total - payload.grand_total
+                 }
+            )
+
+        # 3. Create Order in DB
+        print(f"Step 3: Creating Order in DB")
+        new_order = Order(
+            tenant_id=tenant.id,
+            total_amount=grand_total,
+            tax_amount=tax,
+            discount_amount=discount_amount,
+            currency="INR",
+            items={
+                "plan_code": payload.plan_code,
+                "plan_price": plan_price,
+                "apps": apps_details,
+                "coupon": payload.coupon.dict() if payload.coupon else None
+            },
+            status=OrderStatus.PENDING
+        )
+        db.add(new_order)
+        await db.flush() # Flush to get ID
+        print(f"Order Created with ID: {new_order.id}")
+
+        # 4. Create Razorpay Order
+        print(f"Step 4: Creating Razorpay Order")
+        razorpay_key = os.getenv("RAZORPAY_KEY_ID")
+        razorpay_secret = os.getenv("RAZORPAY_KEY_SECRET")
+        
+        if not razorpay_key or not razorpay_secret:
+             print("Error: Razorpay keys missing")
+             return ResponseHandler.error(message="Payment gateway configuration missing")
+
+        client = razorpay.Client(auth=(razorpay_key, razorpay_secret))
+        
+        amount_in_paise = int(grand_total * 100)
+        order_id = None
+        
+        if amount_in_paise > 0:
+            order_data = {
+                "amount": amount_in_paise,
+                "currency": "INR",
+                "receipt": f"rcpt_{tenant.id}_{int(datetime.now().timestamp())}",
+                "notes": {
+                    "tenant_uuid": str(tenant.tenant_uuid),
+                    "plan_code": payload.plan_code,
+                    "db_order_id": str(new_order.id)
+                }
+            }
+            order = client.order.create(data=order_data)
+            order_id = order['id']
+            # Update order with provider id
+            new_order.provider_order_id = order_id
+        else:
+            # Free transaction
+            order_id = "order_free_" + uuid.uuid4().hex[:10]
+            new_order.provider_order_id = order_id
+        
+        print(f"Razorpay Order ID: {order_id}")
+
+        # 5. Create Pending Transaction
+        print(f"Step 5: Creating Pending Transaction")
+        transaction = Transaction(
+            tenant_id=tenant.id,
+            order_id=new_order.id, # Link to Order
+            amount=grand_total,
+            currency="INR",
+            provider="razorpay",
+            provider_order_id=order_id,
+            status=TransactionStatus.PENDING,
+            plan_code=payload.plan_code,
+            billing_cycle="monthly",
+            details={ # Store snapshot in transaction too
+                 "plan_price": plan_price,
+                 "apps_total": apps_price,
+                 "tax": tax,
+                 "discount": discount_amount
+            }
+        )
+        db.add(transaction)
+        await db.commit()
+        await db.refresh(transaction)
+        
+        print(f"Transaction Created: {transaction.id}")
+        print(f"========== VERIFICATION COMPLETE ==========")
+
+        return ResponseHandler.success(
+            message="Order created",
+            data={
+                "valid": True,
+                "razorpay_order_id": order_id,
+                "transaction_id": transaction.id,
+                "order_id": new_order.id,
+                "amount": grand_total,
+                "currency": "INR",
+                "key_id": razorpay_key
+            }
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"EXCEPTION: {str(e)}")
+        return ResponseHandler.error(message="Payment verification failed", error_details={"detail": str(e)})

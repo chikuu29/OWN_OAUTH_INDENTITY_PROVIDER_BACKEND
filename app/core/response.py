@@ -148,24 +148,44 @@ class ResponseHandler:
         # Check for validation errors
         if isinstance(exc, RequestValidationError):
             # Extract details from the validation exception
-            print('==erors',exc.errors())
+            # print('==erors',exc.errors())
 
-            # errors = {str(error["loc"]): {"type": error["type"], "msg": error["msg"]} for error in exc.errors()}
             formatError = {}
+            input_captured = False
+
             for error in exc.errors():
                 # print(error)
+                # Capture input once from the first error that has it
+                if not input_captured and "input" in error:
+                    formatError["input"] = error["input"]
+                    input_captured = True
+
                 if len(error["loc"]) < 2:
-                    formatError["body"] = {"error": "Request body is missing or invalid"},
+                    if "body" not in formatError:
+                         formatError["body"] = {}
+                    formatError["body"]["__root__"] = {"type": error.get("type"), "msg": error.get("msg")}
                     continue
 
-                _, field = error["loc"]
-                if _ not in formatError:
-                    formatError[_] = {}
-                formatError[_][field] = {
-                    key: error[key] for key in error if key != "loc"
+                # Handle potentially nested locations by joining them or using the last part
+                # Preserving existing logic style which seems to assume (location_type, field_name)
+                # but making it slightly more robust to just use the last element as field name
+                # and the first element as the key (usually 'body' or 'query')
+                
+                loc_root = str(error["loc"][0])
+                field_name = str(error["loc"][-1])
+                
+                # If we want to strictly follow the previous "_, field = ..." unpacking but safe:
+                # loc_root = error["loc"][0]
+                # field_name = error["loc"][1] if len(error["loc"]) > 1 else "__all__"
+
+                if loc_root not in formatError:
+                    formatError[loc_root] = {}
+                
+                formatError[loc_root][field_name] = {
+                    key: error[key] for key in error if key not in ["loc", "input", "ctx", "url"]
                 }
 
-            if formatError is None:
+            if not formatError:
                 formatError = {}
 
             response_data = APIResponse(
