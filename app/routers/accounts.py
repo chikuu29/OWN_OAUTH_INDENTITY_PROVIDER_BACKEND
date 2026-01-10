@@ -544,6 +544,7 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
                         f_price = float(f.addon_price)
                         addon_price_sum += f_price
                         app_snapshot["features"].append({
+                            "feature_id": str(f.id),
                             "code": f.code,
                             "price": f_price
                         })

@@ -24,7 +24,7 @@ async def create_plan_endpoint(inputData: PlanCreate, db: AsyncSession = Depends
     except Exception as e:
         return ResponseHandler.error(message="Plan creation failed", error_details={"detail": str(e)})
 
-@router.get("/", response_model=APIResponse)
+@router.get("/available_plans", response_model=APIResponse)
 async def list_plans_endpoint(
     db: AsyncSession = Depends(get_db),
     page: int = Query(1, ge=1),
