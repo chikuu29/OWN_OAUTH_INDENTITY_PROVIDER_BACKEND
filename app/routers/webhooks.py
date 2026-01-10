@@ -51,7 +51,7 @@ async def razorpay_webhook(
         # 3. Parse Payload
         payload = json.loads(body_bytes)
         # logger.debug(f"Payload: {payload}")
-
+        print(payload)
         event_type = payload.get("event")
         data = payload.get("payload", {}).get("payment", {}).get("entity", {})
         
@@ -59,10 +59,10 @@ async def razorpay_webhook(
         order_data = payload.get("payload", {}).get("order", {}).get("entity", {})
 
         logger.info(f"Received webhook event: {event_type}")
-
+        print(order_data)
         # 4. Handle specific events via Controller
         if event_type == "payment.captured":
-            await handle_payment_success(data, order_data, db)
+            await handle_payment_success(data, order_data, db, background_tasks)
         elif event_type == "payment.failed":
             await handle_payment_failure(data, db)
         elif event_type == "order.paid":

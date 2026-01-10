@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, String, Text, Boolean
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 
@@ -37,14 +37,18 @@ class User(Base):
     last_name = Column(String(100), nullable=False)
     username = Column(String(100), unique=True, nullable=False)
     email = Column(String, unique=True, nullable=False)
-    phone_number = Column(String(20), nullable=False)
+    phone_number = Column(String(20), nullable=True) # Changed to nullable as root users might not have it
     hashed_password = Column(String, nullable=False)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
+    
+    is_active = Column(Boolean, default=True)
+    is_root_user = Column(Boolean, default=False)
+    is_superuser = Column(Boolean, default=False)
 
     tenant = relationship("Tenant", backref="users")
     profile = relationship("UserProfile", uselist=False, back_populates="user")  # One-to-One Relationship
 
-    def to_dict(self, include_profile=False,include_tenat=False):
+    def to_dict(self, include_profile=False, include_tenant=False):
         user_data = {
             "id": self.id,
             "first_name": self.first_name,
@@ -53,12 +57,15 @@ class User(Base):
             "email": self.email,
             "phone_number": self.phone_number,
             "tenant_id": self.tenant_id,
+            "is_active": self.is_active,
+            "is_root_user": self.is_root_user,
+            "is_superuser": self.is_superuser,
         }
         
         # Optionally include the profile if requested
         if include_profile and self.profile:
             user_data["profile"] = self.profile.to_dict()
-        if include_tenat and self.tenant:
+        if include_tenant and self.tenant:
             user_data["tenant"] = self.tenant.to_dict()
 
         return user_data

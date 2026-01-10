@@ -37,7 +37,7 @@ def verify_razorpay_signature(body: bytes, signature: str):
         logger.error(f"Signature verification failed: {e}")
         raise ValueError("Invalid signature")
 
-async def handle_payment_success(payment_data: dict, order_data: dict, db: AsyncSession):
+async def handle_payment_success(payment_data: dict, order_data: dict, db: AsyncSession, background_tasks = None):
     """
     Handle successful payment (payment.captured).
     Updates Transaction, Order, and activates Subscription.
@@ -60,20 +60,32 @@ async def handle_payment_success(payment_data: dict, order_data: dict, db: Async
             transaction.provider_payment_id = razorpay_payment_id
             # transaction.payment_details = payment_data # Store full dump
             
-            # 2. Activate Subscription
-            if transaction.subscription_id:
-                # Fetch Order to get items
-                order_stmt = select(Order).filter(Order.provider_order_id == razorpay_order_id)
-                order_result = await db.execute(order_stmt)
-                order = order_result.scalars().first()
-                order_items = order.items if order else None
-
-                sub_controller = SubscriptionController(db)
-                await sub_controller.activate_subscription(transaction.subscription_id, order_items=order_items)
-                logger.info(f"Activating subscription {transaction.subscription_id}")
+            # Fetch Order first as we need it for both cases
+            order_stmt = select(Order).filter(Order.provider_order_id == razorpay_order_id)
+            order_result = await db.execute(order_stmt)
+            order = order_result.scalars().first()
             
+            sub_controller = SubscriptionController(db,
+                tenant_id=transaction.tenant_id,
+                plan_code=transaction.plan_code
+            )
+            
+            # 2. Create and Activate Subscription
+            if order:
+                # Create new subscription from Order
+                logger.info(f"Creating new subscription from Order {order.id}")
+                new_sub = await sub_controller.create_subscription_from_order(order, background_tasks)
+                transaction.subscription_id = new_sub.id
+                logger.info(f"Created and activated new subscription {new_sub.id}")
+                
+                # Only mark transaction as SUCCESS after subscription is fully activated
+                transaction.status = TransactionStatus.SUCCESS
+            else:
+                logger.warning("No Order found to create subscription.")
+                # Don't mark as success if we can't create subscription
+
             await db.commit()
-            logger.info("Transaction and Subscription updated.")
+            logger.info("Transaction and Subscription processed.")
         else:
             logger.warning(f"Transaction not found for order id: {razorpay_order_id}")
 

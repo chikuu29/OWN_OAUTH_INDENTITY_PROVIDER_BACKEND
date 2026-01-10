@@ -66,6 +66,28 @@ class SubscriptionFeature(Base):
     feature = relationship("Feature")
 
 
+class SubscriptionCycle(Base):
+    __tablename__ = "subscription_cycles"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subscription_id = Column(UUID(as_uuid=True), ForeignKey("subscriptions.id", ondelete="CASCADE"), nullable=False)
+    
+    # Locking to the immutable contract version for this cycle
+    plan_version_id = Column(UUID(as_uuid=True), ForeignKey("saas_plan_versions.id"), nullable=False)
+    plan_code = Column(String(50), nullable=True)
+    
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    
+    status = Column(Enum(SubscriptionStatus), default=SubscriptionStatus.active)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    
+    subscription = relationship("Subscription", back_populates="cycles")
+    plan_version = relationship("PlanVersion")
+
+
 class Subscription(Base):
     __tablename__ = "subscriptions"
 
@@ -73,43 +95,41 @@ class Subscription(Base):
     
     # Locking to tenant (Integer ID from tenants)
     tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False)
-    # Locking to the immutable contract version
-    plan_version_id = Column(UUID(as_uuid=True), ForeignKey("saas_plan_versions.id"), nullable=False)
-    
-    plan_code = Column(String(50), nullable=True)
-    
     status = Column(Enum(SubscriptionStatus), default=SubscriptionStatus.active, nullable=False)
     
-    start_date = Column(Date, nullable=False, default=date.today)
-    end_date = Column(Date, nullable=False)
     auto_renew = Column(Boolean, default=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    tenant = relationship("Tenant", back_populates="subscription")
-    plan_version = relationship("PlanVersion")
+    tenant = relationship("Tenant", back_populates="subscription", foreign_keys=[tenant_id])
     
     # Association Object Relationships
     subscribed_apps = relationship("SubscriptionApp", backref="subscription", cascade="all, delete-orphan")
     subscribed_features = relationship("SubscriptionFeature", backref="subscription", cascade="all, delete-orphan")
     
     billings = relationship("SubscriptionBilling", back_populates="subscription", cascade="all, delete-orphan")
+    cycles = relationship("SubscriptionCycle", back_populates="subscription", cascade="all, delete-orphan", order_by="desc(SubscriptionCycle.start_date)")
+
+    @property
+    def current_cycle(self):
+        return self.cycles[0] if self.cycles else None
 
     @property
     def all_active_features(self):
         """
         Consolidates all features available to this subscription:
-        1. Features bundled in the Plan Version.
+        1. Features bundled in the Current Cycle's Plan Version.
         2. Base features included in the subscribed Apps (if active).
         3. Specific Addon features purchased for this subscription (if active).
         """
         features = set()
         
-        # 1. From Plan Version
-        if self.plan_version:
-            features.update(self.plan_version.features)
+        # 1. From Plan Version (via Current Cycle)
+        cycle = self.current_cycle
+        if cycle and cycle.plan_version:
+            features.update(cycle.plan_version.features)
             
         # 2. From Subscribed Apps (Base features only)
         # Iterate over association objects
