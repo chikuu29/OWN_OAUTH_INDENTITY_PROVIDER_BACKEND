@@ -6,6 +6,8 @@ import asyncio
 from typing import Optional, List, Dict, Any
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -21,19 +23,46 @@ def _send_smtp_email(
     subject: str,
     body: str,
     html_body: Optional[str] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("alternative") if not attachments else MIMEMultipart("mixed")
+    
+    # Create the alternative part for text/html
+    if attachments:
+        alt_part = MIMEMultipart("alternative")
+        msg.attach(alt_part)
+        msg_to_attach_text = alt_part
+    else:
+        msg_to_attach_text = msg
+
     msg["Subject"] = subject
     msg["From"] = from_email
     msg["To"] = ", ".join(to_emails)
 
     # plain text
     part1 = MIMEText(body or "", "plain", "utf-8")
-    msg.attach(part1)
+    msg_to_attach_text.attach(part1)
 
     if html_body:
         part2 = MIMEText(html_body, "html", "utf-8")
-        msg.attach(part2)
+        msg_to_attach_text.attach(part2)
+
+    # Attachments
+    if attachments:
+        for attachment in attachments:
+            file_content = attachment.get("content")
+            file_name = attachment.get("filename")
+            content_type = attachment.get("content_type", "application/octet-stream")
+            
+            if file_content and file_name:
+                part = MIMEBase(*content_type.split("/"))
+                part.set_payload(file_content)
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename={file_name}",
+                )
+                msg.attach(part)
 
     try:
         if use_tls:
@@ -114,9 +143,10 @@ async def send_subscription_confirmation_email(
     start_date: str,
     end_date: str,
     username: Optional[str] = None,
-    password: Optional[str] = None
+    password: Optional[str] = None,
+    attachments: Optional[List[Dict[str, Any]]] = None
 ) -> Dict[str, Any]:
-    """Send a subscription confirmation email with plan details and credentials."""
+    """Send a subscription confirmation email with plan details, credentials, and optional invoice."""
     smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_username = os.getenv("SMTP_USERNAME", "")
@@ -152,6 +182,10 @@ async def send_subscription_confirmation_email(
         f"</ul>"
     )
 
+    if attachments:
+        body += "Please find your payment confirmation invoice attached to this email.\n\n"
+        html_body += "<p>Please find your payment confirmation <b>invoice attached</b> to this email.</p>"
+
     if username and password:
         creds_text = (
             f"Here are your administrator credentials to get started:\n"
@@ -184,6 +218,7 @@ async def send_subscription_confirmation_email(
         subject,
         body,
         html_body,
+        attachments,
     )
 
     return result

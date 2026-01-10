@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import desc
 from uuid import UUID
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 import logging
 
@@ -98,7 +98,7 @@ class SubscriptionController:
             
             # Activate and Link Items
             # This will also set tenant to active and link apps/features
-            await self.activate_subscription(subscription.id, order_items=order.items, background_tasks=background_tasks)
+            await self.activate_subscription(subscription.id, order_items=order.items, background_tasks=background_tasks, order=order)
             
             return subscription
         except SubscriptionError:
@@ -133,16 +133,17 @@ class SubscriptionController:
         )
         self.db.add(sub_feat)
 
-    async def activate_subscription(self, subscription_id: UUID, order_items: dict = None, background_tasks = None):
+    async def activate_subscription(self, subscription_id: UUID, order_items: dict = None, background_tasks = None, order: Order = None):
         """
         Activates a subscription, tenant, and links apps/features.
-        Sends a confirmation email in the background.
+        Sends a confirmation email with PDF invoice in the background.
         """
         try:
             logger.info(f"Activating subscription {subscription_id}")
             
-            # 1. Fetch Subscription with Tenant
-            stmt = select(Subscription).filter(Subscription.id == subscription_id)
+            # 1. Fetch Subscription with Tenant and Cycles (Eager Loading to avoid MissingGreenlet)
+            from sqlalchemy.orm import selectinload
+            stmt = select(Subscription).options(selectinload(Subscription.cycles)).filter(Subscription.id == subscription_id)
             result = await self.db.execute(stmt)
             subscription = result.scalars().first()
             
@@ -180,8 +181,6 @@ class SubscriptionController:
                      logger.info(f"Root user {root_username} created/verified for tenant {tenant.id}")
                  except Exception as e:
                      logger.error(f"Failed to create root user for tenant {tenant.id}: {e}")
-                     # We don't necessarily want to fail the whole activation if root user fails 
-                     # but we should log it prominently.
 
             # 4. Link Apps and Features from Order Items (Optimized - bulk insert)
             if order_items and "apps" in order_items:
@@ -191,7 +190,6 @@ class SubscriptionController:
                 for app_data in order_items["apps"]:
                     app_id_str = app_data.get("app_id")
                     if app_id_str:
-                        # Collect app
                         apps_to_add.append(SubscriptionApp(
                             subscription_id=subscription.id,
                             app_id=UUID(app_id_str),
@@ -199,7 +197,6 @@ class SubscriptionController:
                             status="active"
                         ))
                     
-                    # Collect Features
                     for feat_data in app_data.get("features", []):
                         feat_id_str = feat_data.get("feature_id")
                         if feat_id_str:
@@ -210,47 +207,109 @@ class SubscriptionController:
                                 status="active"
                             ))
                 
-                # Bulk add all apps and features
                 if apps_to_add:
                     self.db.add_all(apps_to_add)
-                    logger.info(f"Adding {len(apps_to_add)} apps to subscription {subscription_id}")
                 if features_to_add:
                     self.db.add_all(features_to_add)
-                    logger.info(f"Adding {len(features_to_add)} features to subscription {subscription_id}")
+
+            # 4.5 Create Billing Record (The Invoice)
+            billing_record = None
+            invoice_summary = None
+            if order:
+                from app.models.subscriptions import SubscriptionBilling, PaymentStatus
+                billing_record = SubscriptionBilling(
+                    subscription_id=subscription.id,
+                    base_amount=order.total_amount - order.tax_amount + order.discount_amount,
+                    discount_amount=order.discount_amount,
+                    tax_amount=order.tax_amount,
+                    total_amount=order.total_amount,
+                    currency=order.currency or "INR",
+                    payment_status=PaymentStatus.paid,
+                    payment_reference=order.provider_order_id,
+                    billing_date=date.today()
+                )
+                self.db.add(billing_record)
+                # Capture for invoice BEFORE commit expires it
+                invoice_summary = {
+                    'id': str(billing_record.id),
+                    'date': billing_record.billing_date.strftime("%Y-%m-%d"),
+                    'amount': float(billing_record.base_amount),
+                    'tax': float(billing_record.tax_amount),
+                    'discount': float(billing_record.discount_amount),
+                    'total': float(billing_record.total_amount),
+                    'currency': str(billing_record.currency.value if hasattr(billing_record.currency, 'value') else billing_record.currency)
+                }
+
+            # Capture essential info before commit (which expires the objects)
+            target_email = tenant.tenant_email if tenant else None
+            target_name = tenant.tenant_name if tenant else None
 
             await self.db.commit()
-            await self.db.refresh(subscription) # Important to get cycles loaded
-
-            # 5. Send Confirmation Email (Background)
-            if tenant and subscription.current_cycle:
+            
+            # 5. Generate and Send Confirmation Email (Background)
+            if target_email and subscription:
                  try:
                      from app.services.email_service import send_subscription_confirmation_email
+                     from app.services.invoice_service import generate_invoice_pdf
                      
-                     cycle = subscription.current_cycle
-                     plan_name = cycle.plan_code or "Selected Plan"
-                     start_date_str = cycle.start_date.strftime("%Y-%m-%d") if cycle.start_date else "N/A"
-                     end_date_str = cycle.end_date.strftime("%Y-%m-%d") if cycle.end_date else "N/A"
-                     
+                     # Re-fetch cycles specifically to ensure they are loaded for this session
+                     from sqlalchemy.orm import selectinload
+                     stmt = select(Subscription).options(selectinload(Subscription.cycles)).filter(Subscription.id == subscription_id)
+                     sub_result = await self.db.execute(stmt)
+                     sub_with_cycles = sub_result.scalars().first()
+
+                     attachments = []
+                     plan_name = "Selected Plan"
+                     start_date_str = "N/A"
+                     end_date_str = "N/A"
+
+                     if sub_with_cycles and sub_with_cycles.current_cycle:
+                         cycle = sub_with_cycles.current_cycle
+                         plan_name = cycle.plan_code or "Selected Plan"
+                         start_date_str = cycle.start_date.strftime("%Y-%m-%d") if cycle.start_date else "N/A"
+                         end_date_str = cycle.end_date.strftime("%Y-%m-%d") if cycle.end_date else "N/A"
+
+                     if invoice_summary:
+                         invoice_data = {
+                             'invoice_number': invoice_summary['id'][:8].upper(),
+                             'date': invoice_summary['date'],
+                             'amount': invoice_summary['amount'],
+                             'tax': invoice_summary['tax'],
+                             'discount': invoice_summary['discount'],
+                             'total': invoice_summary['total'],
+                             'currency': invoice_summary['currency'],
+                             'plan_name': plan_name
+                         }
+                         tenant_info = {
+                             'name': target_name,
+                             'email': target_email,
+                             'address': "" # Future: Add from tenant profile
+                         }
+                         pdf_content = generate_invoice_pdf(invoice_data, tenant_info)
+                         attachments.append({
+                             "filename": f"Invoice_{invoice_data['invoice_number']}.pdf",
+                             "content": pdf_content,
+                             "content_type": "application/pdf"
+                         })
+
                      email_args = (
-                         tenant.tenant_email,
-                         tenant.tenant_name,
+                         target_email,
+                         target_name,
                          plan_name,
                          start_date_str,
                          end_date_str,
                          root_username,
-                         root_password
+                         root_password,
+                         attachments
                      )
                      
                      if background_tasks:
                          background_tasks.add_task(send_subscription_confirmation_email, *email_args)
-                         logger.info(f"Email task added to BackgroundTasks for tenant {tenant.tenant_email}")
                      else:
-                         # Fallback for non-FASTAPI contexts (though still async)
                          import asyncio
                          asyncio.create_task(send_subscription_confirmation_email(*email_args))
-                         logger.info(f"Email task created via asyncio.create_task for tenant {tenant.tenant_email}")
                  except Exception as e:
-                     logger.error(f"Failed to prepare/dispatch confirmation email for subscription {subscription_id}: {e}")
+                     logger.error(f"Failed to prepare/dispatch confirmation email: {e}")
 
             logger.info(f"Subscription {subscription_id} fully activated")
             return subscription

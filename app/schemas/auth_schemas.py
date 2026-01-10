@@ -22,7 +22,7 @@ class UserRegisterSchema(BaseModel):
     last_name: str
     username: str
     email: EmailStr
-    phone_number: str
+    phone_number: Optional[str] = None
     password: str  # Raw password before hashing
     tenant_name: str  # Tenant name instead of ID
     profile: Optional[UserProfileSchema] = None

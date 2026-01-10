@@ -129,7 +129,6 @@ class AccountController:
             last_name="User",
             username=tenant_email,
             email=tenant_email,
-            phone_number=None,
             password=default_password,
             tenant_name=tenant_name,
             profile=None,
