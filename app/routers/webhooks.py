@@ -13,9 +13,9 @@ from app.controllers.payment_webhook_controller import (
     handle_order_paid
 )
 
-# Configure logger
-logger = logging.getLogger(__name__)
+from app.core.logger import create_logger
 
+logger = create_logger('webhooks')
 router = APIRouter(
     prefix="/webhooks",
     tags=["webhooks"],

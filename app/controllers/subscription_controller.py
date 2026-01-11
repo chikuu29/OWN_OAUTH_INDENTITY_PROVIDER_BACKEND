@@ -5,6 +5,7 @@ from uuid import UUID
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 import logging
+import uuid
 
 from app.models.subscriptions import Subscription, SubscriptionStatus, SubscriptionApp, SubscriptionFeature, SubscriptionCycle
 from app.models.plans import Plan, PlanVersion
@@ -13,7 +14,9 @@ from app.models.orders import Order
 from app.models.apps import App
 from app.models.features import Feature
 
-logger = logging.getLogger(__name__)
+from app.core.logger import create_logger
+
+logger = create_logger('subscriptions')
 
 class SubscriptionError(Exception):
     """Base exception for subscription-related errors."""
@@ -229,6 +232,46 @@ class SubscriptionController:
                     billing_date=date.today()
                 )
                 self.db.add(billing_record)
+                await self.db.flush() # Populate ID and other defaults
+                
+                # Capture itemized billing for invoice/email
+                line_items = []
+                if order.items:
+                    # 1. Base Plan
+                    line_items.append({
+                        "name": f"Plan: {order.items.get('plan_code', 'Standard')}",
+                        "price": float(order.items.get('plan_price', 0.0))
+                    })
+                    
+                    # 1b. Included Plan Features (Eagerly load from PlanVersion)
+                    try:
+                        from app.models.plans import PlanVersion
+                        plan_stmt = select(PlanVersion).options(selectinload(PlanVersion.features)).filter(PlanVersion.id == subscription.cycles[0].plan_version_id)
+                        plan_res = await self.db.execute(plan_stmt)
+                        plan_ver = plan_res.scalars().first()
+                        if plan_ver and plan_ver.features:
+                            for feat in plan_ver.features:
+                                line_items.append({
+                                    "name": f"  - Included: {feat.name}",
+                                    "price": 0.0
+                                })
+                    except Exception as e:
+                        logger.warning(f"Could not load plan features for invoice: {e}")
+
+                    # 2. Apps and their features
+                    for app_item in order.items.get('apps', []):
+                        line_items.append({
+                            "name": f"App: {app_item.get('name', 'Unknown App')}",
+                            "price": float(app_item.get('base_price', 0.0))
+                        })
+                        for feat_item in app_item.get('features', []):
+                            price = float(feat_item.get('price', 0.0))
+                            label = "Addon" if price > 0 else "Included"
+                            line_items.append({
+                                "name": f"  - {label}: {feat_item.get('code', 'Feature')}",
+                                "price": price
+                            })
+
                 # Capture for invoice BEFORE commit expires it
                 invoice_summary = {
                     'id': str(billing_record.id),
@@ -237,7 +280,8 @@ class SubscriptionController:
                     'tax': float(billing_record.tax_amount),
                     'discount': float(billing_record.discount_amount),
                     'total': float(billing_record.total_amount),
-                    'currency': str(billing_record.currency.value if hasattr(billing_record.currency, 'value') else billing_record.currency)
+                    'currency': str(billing_record.currency.value if hasattr(billing_record.currency, 'value') else billing_record.currency),
+                    'items': line_items # NEW
                 }
 
             # Capture essential info before commit (which expires the objects)
@@ -253,7 +297,7 @@ class SubscriptionController:
                      from app.services.invoice_service import generate_invoice_pdf
                      
                      # Re-fetch cycles specifically to ensure they are loaded for this session
-                     from sqlalchemy.orm import selectinload
+                     # We already did this above for features, but let's be sure for the background task
                      stmt = select(Subscription).options(selectinload(Subscription.cycles)).filter(Subscription.id == subscription_id)
                      sub_result = await self.db.execute(stmt)
                      sub_with_cycles = sub_result.scalars().first()
@@ -278,7 +322,8 @@ class SubscriptionController:
                              'discount': invoice_summary['discount'],
                              'total': invoice_summary['total'],
                              'currency': invoice_summary['currency'],
-                             'plan_name': plan_name
+                             'plan_name': plan_name,
+                             'line_items': invoice_summary.get('items', []) # RENAMED
                          }
                          tenant_info = {
                              'name': target_name,
@@ -292,6 +337,13 @@ class SubscriptionController:
                              "content_type": "application/pdf"
                          })
 
+                     payment_info = {
+                         "order_id": order.provider_order_id if order else "N/A",
+                         "amount": str(order.total_amount) if order else "0.00",
+                         "currency": str(order.currency) if order else "INR",
+                         "line_items": invoice_summary.get('items', []) if invoice_summary else [] # RENAMED
+                     }
+
                      email_args = (
                          target_email,
                          target_name,
@@ -300,9 +352,26 @@ class SubscriptionController:
                          end_date_str,
                          root_username,
                          root_password,
-                         attachments
+                         attachments,
+                         payment_info
                      )
-                     
+                     # 6. Mark Tenant Activation Link as Used (NEW)
+                     try:
+                         from app.controllers.tenant_link_controller import mark_link_used
+                         from app.models.tenant_link import TenantLink
+                         link_stmt = select(TenantLink).filter(
+                             TenantLink.tenant_id == tenant.tenant_uuid,
+                             TenantLink.request_type == "activation",
+                             TenantLink.is_used == False
+                         )
+                         link_res = await self.db.execute(link_stmt)
+                         link_obj = link_res.scalars().first()
+                         if link_obj:
+                             await mark_link_used(self.db, link_obj)
+                             logger.info(f"Activation link for tenant {tenant.id} marked as used.")
+                     except Exception as link_err:
+                         logger.warning(f"Failed to mark activation link as used: {link_err}")
+
                      if background_tasks:
                          background_tasks.add_task(send_subscription_confirmation_email, *email_args)
                      else:

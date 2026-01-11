@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription Activated!{% endblock %}
+
+{% block content %}
+<p>Hi {{ tenant_name }},</p>
+<p>Success! Your subscription for the <strong>{{ plan_name }}</strong> plan has been successfully activated.</p>
+
+<div class="details-box">
+    <h4>Plan Details:</h4>
+    <ul>
+        <li><strong>Plan:</strong> {{ plan_name }}</li>
+        <li><strong>Start Date:</strong> {{ start_date }}</li>
+        <li><strong>End Date:</strong> {{ end_date }}</li>
+
+        {% if payment_info %}
+        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 10px 0;">
+        <li><strong>Billing Summary:</strong></li>
+        {% for item in payment_info.line_items %}
+        <li style="font-size: 0.9em; color: #475569;">
+            {{ item.name }}: {{ payment_info.currency }} {{ item.price }}
+        </li>
+        {% endfor %}
+        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 10px 0;">
+
+        <li><strong>Total Paid:</strong> {{ payment_info.currency }} {{ payment_info.amount }}</li>
+        <li><strong>Transaction ID:</strong> {{ payment_info.order_id }}</li>
+        {% endif %}
+    </ul>
+</div>
+
+{% if username %}
+<div class="details-box" style="border-left: 4px solid #3b82f6;">
+    <h4>Administrator Credentials:</h4>
+    <ul>
+        <li><strong>Username:</strong> {{ username }}</li>
+        {% if password %}
+        <li><strong>Default Password:</strong> {{ password }}</li>
+        <p><em>Please change your password immediately after logging in.</em></p>
+        {% else %}
+        <li><strong>Password:</strong> Use the password you set during registration.</li>
+        {% endif %}
+    </ul>
+</div>
+{% endif %}
+
+{% if has_attachments %}
+<p><strong>Note:</strong> Please find your payment confirmation invoice attached to this email.</p>
+{% endif %}
+
+<p>We're excited to see what you build!</p>
+<p>Happy building!<br>— The Team</p>
+{% endblock %}

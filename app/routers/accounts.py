@@ -536,17 +536,18 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
                 addon_price_sum = 0
                 if app.id in payload.features:
                     selected_feature_codes = payload.features[app.id]
-                    # We need to fetch features to get their price if they are addons
-                    feat_stmt = select(Feature).filter(Feature.app_id == app.id, Feature.code.in_(selected_feature_codes), Feature.is_base_feature == False)
+                    # Fetch ALL selected features (including base ones)
+                    feat_stmt = select(Feature).filter(Feature.app_id == app.id, Feature.code.in_(selected_feature_codes))
                     feat_result = await db.execute(feat_stmt)
                     features = feat_result.scalars().all()
                     for f in features:
-                        f_price = float(f.addon_price)
+                        f_price = float(f.addon_price) if f.addon_price and not f.is_base_feature else 0.0
                         addon_price_sum += f_price
                         app_snapshot["features"].append({
                             "feature_id": str(f.id),
                             "code": f.code,
-                            "price": f_price
+                            "price": f_price,
+                            "is_base": f.is_base_feature
                         })
 
                 app_total = base_price + addon_price_sum

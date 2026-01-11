@@ -9,8 +9,24 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
 from dotenv import load_dotenv
-logger = logging.getLogger(__name__)
+from jinja2 import Environment, FileSystemLoader
+from datetime import datetime
+
+from app.core.logger import create_logger
+
+logger = create_logger('email')
 load_dotenv()
+
+# Setup Jinja2 environment
+template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "emails")
+jinja_env = Environment(loader=FileSystemLoader(template_dir))
+
+def render_template(template_name: str, **context) -> str:
+    """Helper to render a Jinja2 template."""
+    template = jinja_env.get_template(template_name)
+    # Add common context like current year
+    context.setdefault("year", datetime.now().year)
+    return template.render(**context)
 
 def _send_smtp_email(
     smtp_server: str,
@@ -103,22 +119,26 @@ async def send_tenant_registration_email(tenant_email: str, tenant_name: str, li
         return {"success": False, "error": msg}
 
     subject = f"Welcome to the platform, {tenant_name}!"
-    if link_url:
+    
+    template_data = {
+        "tenant_name": tenant_name,
+        "activation_url": link_url
+    }
+    
+    try:
+        html_body = render_template("registration.html", **template_data)
+        # For plain text, we can use a simpler approach or a dedicated .txt template
+        # For now, let's keep it simple or strip HTML if we wanted to be fancy
         body = (
             f"Hi {tenant_name},\n\n"
-            "Please complete your tenant setup by visiting the following link (valid for 24 hours):\n"
-            f"{link_url}\n\n"
-            "If you did not request this, you can ignore this email.\n\n"
+            f"Please complete your tenant setup by visiting the following link:\n{link_url}\n\n"
             "— The Team"
         )
-        html_body = f"<p>Hi {tenant_name},</p><p>Please complete your tenant setup by visiting the following link (valid for 24 hours):</p><p><a href=\"{link_url}\">Complete setup</a></p><p>— The Team</p>"
-    else:
-        body = (
-            f"Hi {tenant_name},\n\n"
-            "Thanks for registering your tenant. Your account has been created successfully.\n\n"
-            "— The Team"
-        )
-        html_body = f"<p>Hi {tenant_name},</p><p>Thanks for registering your tenant. Your account has been created successfully.</p><p>— The Team</p>"
+    except Exception as e:
+        logger.error(f"Template rendering failed: {e}")
+        # Fallback to simple strings
+        body = f"Hi {tenant_name}, please activate: {link_url}"
+        html_body = body
 
     # run blocking SMTP call in thread
     result = await asyncio.to_thread(
@@ -144,7 +164,8 @@ async def send_subscription_confirmation_email(
     end_date: str,
     username: Optional[str] = None,
     password: Optional[str] = None,
-    attachments: Optional[List[Dict[str, Any]]] = None
+    attachments: Optional[List[Dict[str, Any]]] = None,
+    payment_info: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Send a subscription confirmation email with plan details, credentials, and optional invoice."""
     smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
@@ -162,49 +183,29 @@ async def send_subscription_confirmation_email(
 
     subject = f"Subscription Activated: {plan_name}"
     
-    body = (
-        f"Hi {tenant_name},\n\n"
-        f"Your subscription for the {plan_name} plan has been successfully activated!\n\n"
-        f"Details:\n"
-        f"- Plan: {plan_name}\n"
-        f"- Start Date: {start_date}\n"
-        f"- End Date: {end_date}\n\n"
-    )
-    
-    html_body = (
-        f"<h3>Hi {tenant_name},</h3>"
-        f"<p>Your subscription for the <b>{plan_name}</b> plan has been successfully activated!</p>"
-        f"<h4>Details:</h4>"
-        f"<ul>"
-        f"<li><b>Plan:</b> {plan_name}</li>"
-        f"<li><b>Start Date:</b> {start_date}</li>"
-        f"<li><b>End Date:</b> {end_date}</li>"
-        f"</ul>"
-    )
+    template_data = {
+        "tenant_name": tenant_name,
+        "plan_name": plan_name,
+        "start_date": start_date,
+        "end_date": end_date,
+        "username": username,
+        "password": password,
+        "payment_info": payment_info,
+        "has_attachments": bool(attachments)
+    }
 
-    if attachments:
-        body += "Please find your payment confirmation invoice attached to this email.\n\n"
-        html_body += "<p>Please find your payment confirmation <b>invoice attached</b> to this email.</p>"
-
-    if username and password:
-        creds_text = (
-            f"Here are your administrator credentials to get started:\n"
-            f"- Username: {username}\n"
-            f"- Default Password: {password}\n"
-            f"Please change your password after logging in.\n\n"
-        )
-        body += creds_text
-        html_body += (
-            f"<h4>Admin Credentials:</h4>"
-            f"<ul>"
-            f"<li><b>Username:</b> {username}</li>"
-            f"<li><b>Default Password:</b> {password}</li>"
-            f"</ul>"
-            f"<p><i>Please change your password after logging in.</i></p>"
-        )
-
-    body += "Happy building!\n— The Team"
-    html_body += "<p>Happy building!<br>— The Team</p>"
+    try:
+        html_body = render_template("subscription_confirmation.html", **template_data)
+        # Simplified plain text body
+        body = f"Hi {tenant_name},\n\nYour subscription for {plan_name} is active.\n"
+        if username:
+            body += f"Login: {username}\n"
+        if attachments:
+            body += "Invoice attached.\n"
+    except Exception as e:
+        logger.error(f"Template rendering failed: {e}")
+        body = f"Subscription {plan_name} activated for {tenant_name}."
+        html_body = body
 
     result = await asyncio.to_thread(
         _send_smtp_email,

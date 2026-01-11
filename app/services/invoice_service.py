@@ -38,10 +38,10 @@ def generate_invoice_pdf(
     """
     if not company_details:
         company_details = {
-            'name': 'Antigravity SaaS Platform',
+            'name': 'Mindshift',
             'address': '123 Tech Lane, Silicon Valley, CA 94025',
-            'email': 'billing@antigravity.ai',
-            'website': 'www.antigravity.ai'
+            'email': 'billing@mindshift.ai',
+            'website': 'www.mindshift.ai'
         }
 
     buffer = io.BytesIO()
@@ -100,13 +100,26 @@ def generate_invoice_pdf(
 
     # Items Table
     item_header = ["Description", "Quantity", "Rate", "Amount"]
-    plan_name = billing_data.get('plan_name', 'SaaS Subscription')
     currency = billing_data.get('currency', 'INR')
     
-    items_data = [
-        item_header,
-        [plan_name, "1", f"{currency} {billing_data['amount']:,.2f}", f"{currency} {billing_data['amount']:,.2f}"]
-    ]
+    items_data = [item_header]
+    
+    # Add Itemized list
+    line_items = billing_data.get('line_items', [])
+    if line_items:
+        for item in line_items:
+            price = item.get('price', 0.0)
+            items_data.append([
+                item.get('name', 'Item'),
+                "1",
+                f"{currency} {price:,.2f}",
+                f"{currency} {price:,.2f}"
+            ])
+    else:
+        # Fallback to single plan line if no items provided
+        plan_name = billing_data.get('plan_name', 'SaaS Subscription')
+        amount = billing_data.get('amount', 0.0)
+        items_data.append([plan_name, "1", f"{currency} {amount:,.2f}", f"{currency} {amount:,.2f}"])
     
     items_table = Table(items_data, colWidths=[3 * inch, 1 * inch, 1.2 * inch, 1.3 * inch])
     items_table.setStyle(TableStyle([
