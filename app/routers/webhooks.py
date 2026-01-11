@@ -5,13 +5,9 @@ from app.db.database import get_db
 import logging
 import json
 
-# Import Controller Logic
-from app.controllers.payment_webhook_controller import (
-    verify_razorpay_signature,
-    handle_payment_success,
-    handle_payment_failure,
-    handle_order_paid
-)
+
+
+from app.controllers.payment_webhook_controller import PaymentWebhookController
 
 from app.core.logger import create_logger
 
@@ -36,11 +32,11 @@ async def razorpay_webhook(
         # 1. Get Raw Body for Signature Verification
         body_bytes = await request.body()
         signature = request.headers.get("X-Razorpay-Signature")
-
+        webhook_controller = PaymentWebhookController(db, background_tasks)
         # 2. Verify Signature
         if signature:
              try:
-                 verify_razorpay_signature(body_bytes, signature)
+                 webhook_controller.verify_razorpay_signature(body_bytes, signature)
              except ValueError:
                  raise HTTPException(status_code=400, detail="Invalid signature")
         else:
@@ -61,12 +57,14 @@ async def razorpay_webhook(
         logger.info(f"Received webhook event: {event_type}")
         print(order_data)
         # 4. Handle specific events via Controller
+       
+        
         if event_type == "payment.captured":
-            await handle_payment_success(data, order_data, db, background_tasks)
+            await webhook_controller.handle_payment_success(data, order_data)
         elif event_type == "payment.failed":
-            await handle_payment_failure(data, db)
+            await webhook_controller.handle_payment_failure(data)
         elif event_type == "order.paid":
-             await handle_order_paid(order_data, db)
+             await webhook_controller.handle_order_paid(order_data)
         
         # Return success (200 OK) to acknowledge receipt
         return ResponseHandler.success(message="Webhook received successfully")

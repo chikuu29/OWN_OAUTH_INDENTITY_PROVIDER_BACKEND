@@ -15,8 +15,8 @@ from app.models.apps import App
 from app.models.features import Feature
 
 from app.core.logger import create_logger
-
-logger = create_logger('subscriptions')
+from .base_controller import BaseController
+from fastapi import BackgroundTasks
 
 class SubscriptionError(Exception):
     """Base exception for subscription-related errors."""
@@ -25,9 +25,16 @@ class SubscriptionError(Exception):
 class PlanNotFoundError(SubscriptionError):
     """Raised when a specified plan code is not found."""
     pass
-class SubscriptionController:
-    def __init__(self, db: AsyncSession, tenant_id: int, tenant_uuid:Optional[str] = None,plan_code:str="FREE_TRIAL"):
-        self.db = db
+class SubscriptionController(BaseController):
+    def __init__(
+        self, 
+        db: AsyncSession, 
+        tenant_id: int, 
+        tenant_uuid: Optional[str] = None, 
+        plan_code: str = "FREE_TRIAL", 
+        background_tasks: Optional[BackgroundTasks] = None
+    ):
+        super().__init__(db, background_tasks=background_tasks, logger_name='subscriptions')
         self.tenant_id = tenant_id
         self.tenant_uuid = tenant_uuid
         self.plan_code = plan_code
@@ -40,7 +47,7 @@ class SubscriptionController:
         Does NOT commit, just flushes. Caller should commit.
         """
         try:
-            logger.info(f"Creating subscription for tenant {self.tenant_id} with plan {self.plan_code}")
+            self.logger.info(f"Creating subscription for tenant {self.tenant_id} with plan {self.plan_code}")
             
             # 1. Fetch Plan Version
             plan_stmt = select(PlanVersion).join(Plan).filter(Plan.plan_code == self.plan_code).order_by(desc(PlanVersion.created_at))
@@ -48,7 +55,7 @@ class SubscriptionController:
             plan_version = result.scalars().first()
             
             if not plan_version:
-                logger.error(f"Plan not found: {self.plan_code}")
+                self.logger.error(f"Plan not found: {self.plan_code}")
                 raise PlanNotFoundError(f"Plan not found: {self.plan_code}")
 
             start_date = datetime.now(timezone.utc).date()
@@ -64,7 +71,7 @@ class SubscriptionController:
             self.db.add(new_sub)
             await self.db.flush()
 
-            logger.info(f"Subscription {new_sub.id} created. Initializing cycle with plan version {plan_version.id}")
+            self.logger.info(f"Subscription {new_sub.id} created. Initializing cycle with plan version {plan_version.id}")
             
             # Create First Billing Cycle
             new_cycle = SubscriptionCycle(
@@ -78,13 +85,13 @@ class SubscriptionController:
             self.db.add(new_cycle)
             await self.db.flush()
             
-            logger.info(f"Successfully created subscription and initial cycle for tenant {self.tenant_id}")
+            self.logger.info(f"Successfully created subscription and initial cycle for tenant {self.tenant_id}")
             return new_sub
             
         except PlanNotFoundError:
             raise
         except Exception as e:
-            logger.exception(f"Unexpected error creating subscription for tenant {self.tenant_id}")
+            self.logger.exception(f"Unexpected error creating subscription for tenant {self.tenant_id}")
             raise SubscriptionError(f"Failed to create subscription: {str(e)}")
 
     async def create_subscription_from_order(self, order: Order, background_tasks = None):
@@ -108,7 +115,7 @@ class SubscriptionController:
             # Re-raise known errors
             raise
         except Exception as e:
-            logger.exception(f"Failed to process subscription from order {order.id}")
+            self.logger.exception(f"Failed to process subscription from order {order.id}")
             raise SubscriptionError(f"Subscription processing from order failed: {str(e)}")
 
     async def add_app_to_subscription(self, subscription_id: UUID, app_id: UUID):
@@ -142,7 +149,7 @@ class SubscriptionController:
         Sends a confirmation email with PDF invoice in the background.
         """
         try:
-            logger.info(f"Activating subscription {subscription_id}")
+            self.logger.info(f"Activating subscription {subscription_id}")
             
             # 1. Fetch Subscription with Tenant and Cycles (Eager Loading to avoid MissingGreenlet)
             from sqlalchemy.orm import selectinload
@@ -151,7 +158,7 @@ class SubscriptionController:
             subscription = result.scalars().first()
             
             if not subscription:
-                logger.warning(f"Activation failed: Subscription {subscription_id} not found")
+                self.logger.warning(f"Activation failed: Subscription {subscription_id} not found")
                 return None
 
             # 2. Activate Subscription
@@ -167,7 +174,7 @@ class SubscriptionController:
             root_password = None
             
             if tenant:
-                 logger.info(f"Activating tenant {tenant.id} for subscription {subscription_id}")
+                 self.logger.info(f"Activating tenant {tenant.id} for subscription {subscription_id}")
                  tenant.tenant_active = True
                  tenant.status = TenantStatusEnum.active
                  
@@ -181,9 +188,9 @@ class SubscriptionController:
                          tenant_name=tenant.tenant_name
                      )
                      root_username = root_user.username
-                     logger.info(f"Root user {root_username} created/verified for tenant {tenant.id}")
+                     self.logger.info(f"Root user {root_username} created/verified for tenant {tenant.id}")
                  except Exception as e:
-                     logger.error(f"Failed to create root user for tenant {tenant.id}: {e}")
+                     self.logger.error(f"Failed to create root user for tenant {tenant.id}: {e}")
 
             # 4. Link Apps and Features from Order Items (Optimized - bulk insert)
             if order_items and "apps" in order_items:
@@ -256,7 +263,7 @@ class SubscriptionController:
                                     "price": 0.0
                                 })
                     except Exception as e:
-                        logger.warning(f"Could not load plan features for invoice: {e}")
+                        self.logger.warning(f"Could not load plan features for invoice: {e}")
 
                     # 2. Apps and their features
                     for app_item in order.items.get('apps', []):
@@ -368,9 +375,9 @@ class SubscriptionController:
                          link_obj = link_res.scalars().first()
                          if link_obj:
                              await mark_link_used(self.db, link_obj)
-                             logger.info(f"Activation link for tenant {tenant.id} marked as used.")
+                             self.logger.info(f"Activation link for tenant {tenant.id} marked as used.")
                      except Exception as link_err:
-                         logger.warning(f"Failed to mark activation link as used: {link_err}")
+                         self.logger.warning(f"Failed to mark activation link as used: {link_err}")
 
                      if background_tasks:
                          background_tasks.add_task(send_subscription_confirmation_email, *email_args)
@@ -378,13 +385,13 @@ class SubscriptionController:
                          import asyncio
                          asyncio.create_task(send_subscription_confirmation_email(*email_args))
                  except Exception as e:
-                     logger.error(f"Failed to prepare/dispatch confirmation email: {e}")
+                     self.logger.error(f"Failed to prepare/dispatch confirmation email: {e}")
 
-            logger.info(f"Subscription {subscription_id} fully activated")
+            self.logger.info(f"Subscription {subscription_id} fully activated")
             return subscription
             
         except Exception as e:
-            logger.exception(f"Error activating subscription {subscription_id}")
+            self.logger.exception(f"Error activating subscription {subscription_id}")
             await self.db.rollback()
             raise SubscriptionError(f"Activation failed: {str(e)}")
 

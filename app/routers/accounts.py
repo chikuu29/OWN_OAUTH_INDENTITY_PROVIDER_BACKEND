@@ -4,14 +4,15 @@ from uuid import UUID
 from sqlalchemy import func, desc, or_
 from sqlalchemy.future import select
 from sqlalchemy.orm import Session
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.models.auth import User
 from app.schemas.tanent import TenantCreate
 
 # from app.crud.client import create_oauth_client
-from app.controllers.account_controller import create_tenant, register_user
+from app.controllers.account_controller import AccountController
 from app.controllers.tenant_link_controller import create_tenant_link, get_tenant_link, mark_link_used
 from app.controllers.plan_controller import get_plan
+from app.controllers.subscription_controller import SubscriptionController
 from app.models.subscriptions import Subscription, SubscriptionStatus, SubscriptionBilling, PaymentStatus
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -40,8 +41,51 @@ from app.models.transactions import Transaction, TransactionStatus
 from app.models.orders import Order, OrderStatus
 from app.models.apps import AppPricing # Added import
 from app.models.plans import CurrencyEnum, CountryEnum # Added import
-from app.schemas.payment import PaymentVerificationRequest, PaymentVerificationResponse
+from app.schemas.payment import PaymentVerificationRequest, PaymentStatusResponse,PaymentStatusRequest
+from app.core.logger import create_logger
+
 # tenant link helpers imported above
+logger = create_logger('accounts')
+
+async def process_free_activation_task(tenant_id: int, order_id: UUID, transaction_id: UUID, plan_code: str):
+    """
+    Background task to process subscription activation for free plans.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            logger.info(f"[Background] Starting free activation for tenant {tenant_id}")
+            
+            # Fetch objects to ensure they exist and link properly in this session
+            order_res = await db.execute(select(Order).filter(Order.id == order_id))
+            order = order_res.scalars().first()
+            
+            txn_res = await db.execute(select(Transaction).filter(Transaction.id == transaction_id))
+            transaction = txn_res.scalars().first()
+            
+            if not order or not transaction:
+                logger.error(f"[Background] Activation failed: Order {order_id} or Transaction {transaction_id} not found")
+                return
+
+            sub_controller = SubscriptionController(db, tenant_id=tenant_id, plan_code=plan_code)
+            # This handles activation, root user, billing, and background emails
+            subscription = await sub_controller.create_subscription_from_order(order)
+            
+            transaction.subscription_id = subscription.id
+            transaction.status = TransactionStatus.SUCCESS # Mark as success AFTER activation
+            await db.commit()
+            logger.info(f"[Background] Free activation successful for tenant {tenant_id}. Subscription {subscription.id}")
+        except Exception as e:
+            logger.error(f"[Background] Error in free activation for tenant {tenant_id}: {str(e)}")
+            # For free plans, if background task fails, we might want to mark transaction as failed 
+            # so the user can see it in history/confirmation
+            try:
+                 txn_res = await db.execute(select(Transaction).filter(Transaction.id == transaction_id))
+                 txn = txn_res.scalars().first()
+                 if txn:
+                      txn.status = TransactionStatus.FAILED
+                      await db.commit()
+            except: pass
+            await db.rollback()
 
 
 router = APIRouter(
@@ -56,7 +100,8 @@ async def register_authuser(
 ):
     print("====CALLING REGISTER AUTH USER===")
     try:
-        user_data = await register_user(db, user)
+        account_controller = AccountController(db=db)
+        user_data = await account_controller.register_user(user)
 
         user_data = model_to_dict(user_data, exclude_fields=["hashed_password"])
 
@@ -111,7 +156,8 @@ async def register_tanets(client: TenantCreate, background_tasks: BackgroundTask
     print(f"==CALLING register_tanets====")
     print(f"Client", client)
     try:
-        db_client = await create_tenant(db=db, client=client)
+        account_controller = AccountController(db=db)
+        db_client = await account_controller.create_tenant(client)
 
         # Create activation link valid for 24 hours (returns DB link and raw token)
         link, raw_token = await create_tenant_link(
@@ -218,11 +264,11 @@ async def validate_activation_link(token: str, db: AsyncSession = Depends(get_db
         if not link:
             return ResponseHandler.not_found(message="Activation link not found")
 
+        # if link.is_used:
+        #     return ResponseHandler.error(message="Activation link already used", error_details={"token": token})
         if link.is_used:
-            return ResponseHandler.error(message="Activation link already used", error_details={"token": token})
-
-        if link.expires_at and link.expires_at < datetime.now(timezone.utc):
-            return ResponseHandler.error(message="Activation link expired", error_details={"token": token})
+            if link.expires_at and link.expires_at < datetime.now(timezone.utc):
+                return ResponseHandler.error(message="Activation link expired", error_details={"token": token})
 
         # Decode the token to get the payload
         from app.controllers.tenant_link_controller import JWT_SECRET, JWT_ALGO
@@ -301,75 +347,6 @@ async def resend_activation_link(token: str, background_tasks: BackgroundTasks, 
         )
 
 
-# @router.post("/activate/{token}/complete", response_model=APIResponse)
-# async def complete_activation(token: str, payload: ActivationComplete, db: AsyncSession = Depends(get_db)):
-#     try:
-#         link = await get_tenant_link(db, token)
-#         if not link:
-#             return ResponseHandler.not_found(message="Activation link not found")
-
-#         if link.is_used:
-#             return ResponseHandler.error(message="Activation link already used", error_details={"token": token})
-
-#         if link.expires_at and link.expires_at < datetime.now(timezone.utc):
-#             return ResponseHandler.error(message="Activation link expired", error_details={"token": token})
-
-#         # Activate tenant
-#         result = await db.execute(select(Tenant).filter(Tenant.id == link.tenant_id))
-#         tenant = result.scalars().first()
-#         if not tenant:
-#             return ResponseHandler.not_found(message="Tenant not found for link", error_details={"tenant_id": link.tenant_id})
-
-#         # If a plan is provided, create subscription
-#         subscription_info = None
-#         if payload.plan_uuid:
-#             plan = await get_plan(db, payload.plan_uuid)
-#             if not plan:
-#                 return ResponseHandler.not_found(message="Plan not found", error_details={"plan_uuid": str(payload.plan_uuid)})
-
-#             start_date = datetime.now(timezone.utc)
-#             if getattr(plan.billing_cycle, "value", str(plan.billing_cycle)) == "monthly":
-#                 end_date = start_date + timedelta(days=30)
-#             else:
-#                 end_date = start_date + timedelta(days=365)
-
-#             subscription = Subscription(
-#                 tenant_id=tenant.id,
-#                 plan_id=plan.id,
-#                 status=SubscriptionStatusEnum.active,
-#                 start_date=start_date,
-#                 end_date=end_date,
-#                 currency=plan.currency,
-#                 country=plan.country,
-#                 auto_renew=True,
-#             )
-#             db.add(subscription)
-#             await db.commit()
-#             await db.refresh(subscription)
-#             subscription_info = {
-#                 "id": subscription.id,
-#                 "plan_id": subscription.plan_id,
-#                 "start_date": subscription.start_date.isoformat() if subscription.start_date else None,
-#                 "end_date": subscription.end_date.isoformat() if subscription.end_date else None,
-#             }
-
-#         # Mark tenant active
-#         tenant.is_active = True
-#         tenant.status = TenantStatusEnum.active
-#         await db.commit()
-
-#         # Mark link used
-#         await mark_link_used(db, link)
-
-#         response_data = {"tenant": tenant.to_dict()}
-#         if subscription_info:
-#             response_data["subscription"] = subscription_info
-
-#         return ResponseHandler.success(message="Activation completed", data=[response_data])
-
-#     except Exception as e:
-#         return ResponseHandler.error(message="Failed to complete activation", error_details={"detail": str(e)})
-
 
 @router.post("/tenant/profile", response_model=APIResponse)
 async def upsert_tenant_profile(
@@ -447,20 +424,14 @@ async def get_tenant_profile(tenant_id: int = Query(...), db: AsyncSession = Dep
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
 @router.post("/verify-payment", response_model=APIResponse)
-async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession = Depends(get_db)):
+async def verify_payment(payload: PaymentVerificationRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """
+    Step 1: Verify price server-side based on plan + apps + features + coupon.
+    Step 2: Create Order in DB.
+    Step 3: Create Razorpay Order (if amount > 0) or mock order.
+    Step 4: Create Transaction (PENDING if paid, SUCCESS if free).
+    """
     print(f"========== STARTING PAYMENT VERIFICATION ==========")
     print(f"Payload: {payload.dict()}")
     try:
@@ -650,8 +621,10 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
         
         print(f"Razorpay Order ID: {order_id}")
 
-        # 5. Create Pending Transaction
-        print(f"Step 5: Creating Pending Transaction")
+        # 5. Create Transaction
+        print(f"Step 5: Creating Transaction")
+        is_free = (grand_total <= 0)
+        
         transaction = Transaction(
             tenant_id=tenant.id,
             order_id=new_order.id, # Link to Order
@@ -659,22 +632,38 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
             currency="INR",
             provider="razorpay",
             provider_order_id=order_id,
-            status=TransactionStatus.PENDING,
+            status=TransactionStatus.PENDING, # Always PENDING initially, background task will update it
             plan_code=payload.plan_code,
             billing_cycle="monthly",
             payment_details={ # Store snapshot in transaction too
                  "plan_price": plan_price,
                  "apps_total": apps_price,
                  "tax": tax,
-                 "discount": discount_amount
+                 "discount": discount_amount,
+                 "is_free": is_free
             },
             payment_method="online"
         )
         db.add(transaction)
-        await db.commit()
+        
+        if is_free:
+            logger.info(f"Offloading free activation for tenant {tenant.id} to background")
+            new_order.status = OrderStatus.COMPLETED
+            await db.commit() # Save order and transaction first
+            
+            background_tasks.add_task(
+                process_free_activation_task,
+                tenant.id,
+                new_order.id,
+                transaction.id,
+                payload.plan_code
+            )
+        else:
+            await db.commit() # Commit for paid transactions (stays PENDING)
+        
         await db.refresh(transaction)
         
-        print(f"Transaction Created: {transaction.id}")
+        print(f"Transaction Created: {transaction.id}, Status: {transaction.status}")
         print(f"========== VERIFICATION COMPLETE ==========")
 
         return ResponseHandler.success(
@@ -682,8 +671,8 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
             data={
                 "valid": True,
                 "razorpay_order_id": order_id,
-                "transaction_id": transaction.id,
-                "order_id": new_order.id,
+                "transaction_id": str(transaction.id), # Ensure string for JSON
+                "order_id": str(new_order.id),
                 "amount": grand_total,
                 "currency": "INR",
                 "key_id": razorpay_key
@@ -695,3 +684,90 @@ async def verify_payment(payload: PaymentVerificationRequest, db: AsyncSession =
         traceback.print_exc()
         print(f"EXCEPTION: {str(e)}")
         return ResponseHandler.error(message="Payment verification failed", error_details={"detail": str(e)})
+
+
+@router.post("/payment-status", response_model=APIResponse)
+async def get_payment_status(payload: PaymentStatusRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Check the status of a payment transaction and its associated subscription.
+    This is used by the frontend to poll after a Razorpay checkout.
+    """
+    try:
+        # 1. Fetch Transaction
+        stmt = select(Transaction).filter(Transaction.id == payload.transaction_id)
+        result = await db.execute(stmt)
+        transaction = result.scalars().first()
+        
+        if not transaction:
+            return ResponseHandler.not_found(message="Transaction not found")
+
+        # 2. Check Subscription (if transaction successful)
+        subscription_status = "inactive"
+        if transaction.status == TransactionStatus.SUCCESS:
+            sub_stmt = select(Subscription).filter(Subscription.tenant_id == transaction.tenant_id)
+            sub_result = await db.execute(sub_stmt)
+            subscription = sub_result.scalars().first()
+            if subscription:
+                subscription_status = subscription.status.value if hasattr(subscription.status, 'value') else str(subscription.status)
+
+        # 3. Formulate Response
+        status_map = {
+            TransactionStatus.SUCCESS: "SUCCESS",
+            TransactionStatus.PENDING: "PENDING",
+            TransactionStatus.FAILED: "FAILED"
+        }
+        
+        status_str = status_map.get(transaction.status, "PENDING")
+
+        response_data = PaymentStatusResponse(
+            valid=True,
+            status=status_str,
+            subscription_status=subscription_status,
+            razorpay_order_id=transaction.provider_order_id,
+            transaction_id=transaction.id,
+            amount=float(transaction.amount),
+            currency=transaction.currency,
+            message=f"Transaction is current {status_str}"
+        )
+
+        return ResponseHandler.success(
+            message="Payment status fetched",
+            data=[response_data.dict()]
+        )
+
+    except Exception as e:
+        logger.error(f"Error fetching payment status: {str(e)}")
+        return ResponseHandler.error(message="Failed to fetch payment status", error_details={"detail": str(e)})
+
+
+@router.get("/payment-history", response_model=APIResponse)
+async def get_payment_history(tenant_uuid: UUID, db: AsyncSession = Depends(get_db)):
+    """
+    Fetch transaction history for a tenant.
+    """
+    try:
+        # Transaction already has relationship with Tenant
+        stmt = select(Transaction).join(Tenant).filter(Tenant.tenant_uuid == tenant_uuid).order_by(Transaction.created_at.desc())
+        result = await db.execute(stmt)
+        transactions = result.scalars().all()
+        
+        history = []
+        for txn in transactions:
+            history.append({
+                "id": str(txn.id),
+                "amount": float(txn.amount),
+                "status": txn.status.value if hasattr(txn.status, 'value') else str(txn.status),
+                "date": txn.created_at.strftime("%b %d, %Y %H:%M") if txn.created_at else "N/A",
+                "method": txn.payment_method or "N/A",
+                "provider_order_id": txn.provider_order_id
+            })
+            
+        return ResponseHandler.success(
+            message="Payment history fetched",
+            data=history
+        )
+    except Exception as e:
+        logger.error(f"Error fetching history: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return ResponseHandler.error(message="Failed to fetch payment history", error_details={"detail": str(e)})

@@ -23,11 +23,21 @@ class PaymentVerificationRequest(BaseModel):
     subtotal: float
     tax_rate: float
 
-class PaymentVerificationResponse(BaseModel):
+class PaymentStatusRequest(BaseModel):
+    tenant_id: Optional[UUID] = None
+    tenant_uuid: Optional[UUID] = None
+    plan_uuid: Optional[UUID] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
+    transaction_id: UUID
+
+class PaymentStatusResponse(BaseModel):
     valid: bool
+    status: str # SUCCESS, PENDING, FAILED
+    subscription_status: Optional[str] = None
     razorpay_order_id: Optional[str] = None
     transaction_id: Optional[UUID] = None
     amount: float
     currency: str = "INR"
-    key_id: Optional[str] = None # Send public key to frontend
     message: Optional[str] = None

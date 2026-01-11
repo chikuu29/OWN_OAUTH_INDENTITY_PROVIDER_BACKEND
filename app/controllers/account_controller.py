@@ -5,6 +5,8 @@ from sqlalchemy.future import select
 from passlib.context import CryptContext
 from uuid import UUID
 from typing import Optional
+from .base_controller import BaseController
+from fastapi import BackgroundTasks
 
 from app.schemas.tanent import TenantCreate
 from app.schemas.auth_schemas import UserRegisterSchema
@@ -15,9 +17,9 @@ from app.models.auth import User, UserProfile
 pwd_context = CryptContext(schemes=["bcrypt"])
 
 
-class AccountController:
-    def __init__(self, db: AsyncSession):
-        self.db = db
+class AccountController(BaseController):
+    def __init__(self, db: AsyncSession, background_tasks: Optional[BackgroundTasks] = None):
+        super().__init__(db, background_tasks=background_tasks, logger_name='accounts')
 
     async def create_tenant(self, client: TenantCreate):
         """Create a new tenant"""
@@ -144,12 +146,3 @@ class AccountController:
         return root_user, default_password
 
 
-# Legacy function wrappers for backward compatibility
-async def create_tenant(db: Session, client: TenantCreate):
-    controller = AccountController(db)
-    return await controller.create_tenant(client)
-
-
-async def register_user(db: Session, user_data: UserRegisterSchema):
-    controller = AccountController(db)
-    return await controller.register_user(user_data)
