@@ -300,17 +300,33 @@ async def resend_activation_link(token: str, background_tasks: BackgroundTasks, 
     Uses the old token to identify the tenant.
     """
     try:
-        # 1. Find the link by the old token hash
+        # 1. Try to find the link by the old token hash
         old_link = await get_tenant_link(db, token)
-        if not old_link:
-            return ResponseHandler.not_found(message="Original activation link not found")
+        
+        tenant_uuid = None
+        if old_link:
+            tenant_uuid = old_link.tenant_id
+        else:
+            # Fallback: Decode the token directly (even if expired) to identify the tenant
+            from app.controllers.tenant_link_controller import JWT_SECRET, JWT_ALGO
+            import jwt
+            try:
+                # We use verify=False or verify_exp=False because the link might be expired, 
+                # but we still want to know who it belonged to so we can resend.
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO], options={"verify_exp": False})
+                tenant_uuid = payload.get("tenant_uuid")
+            except Exception as decode_err:
+                return ResponseHandler.error(message="Invalid or untrusted token.", error_details={"detail": str(decode_err)})
 
-        # 2. Get the tenant associated with this link (link.tenant_id is the tenant_uuid)
-        result = await db.execute(select(Tenant).filter(Tenant.tenant_uuid == old_link.tenant_id))
+        if not tenant_uuid:
+            return ResponseHandler.not_found(message="Could not identify tenant from this token.")
+
+        # 2. Get the tenant associated with this link
+        result = await db.execute(select(Tenant).filter(Tenant.tenant_uuid == tenant_uuid))
         tenant = result.scalars().first()
         
         if not tenant:
-            return ResponseHandler.not_found(message="Tenant not found for this link")
+            return ResponseHandler.not_found(message="Tenant not found for this identifier.")
 
         if tenant.is_active:
              return ResponseHandler.error(message="Tenant is already active", error_details={"tenant_uuid": str(tenant.tenant_uuid)})
@@ -644,6 +660,18 @@ async def verify_payment(payload: PaymentVerificationRequest, background_tasks: 
             },
             payment_method="online"
         )
+
+        # 5.1 Link to TenantLink if request_code present
+        if payload.request_code:
+            try:
+                from app.controllers.tenant_link_controller import get_tenant_link
+                link = await get_tenant_link(db, payload.request_code)
+                if link:
+                    transaction.tenant_link_id = link.id
+                    print(f"Linked Transaction {transaction.id} to TenantLink {link.id}")
+            except Exception as link_err:
+                print(f"Failed to link transaction to token: {link_err}")
+
         db.add(transaction)
         
         if is_free:
@@ -693,13 +721,61 @@ async def get_payment_status(payload: PaymentStatusRequest, db: AsyncSession = D
     This is used by the frontend to poll after a Razorpay checkout.
     """
     try:
-        # 1. Fetch Transaction
-        stmt = select(Transaction).filter(Transaction.id == payload.transaction_id)
-        result = await db.execute(stmt)
-        transaction = result.scalars().first()
+        transaction = None
+        
+        # 1. Fetch Transaction - either by ID or by token
+        if payload.transaction_id:
+            stmt = select(Transaction).filter(Transaction.id == payload.transaction_id)
+            result = await db.execute(stmt)
+            transaction = result.scalars().first()
+        elif payload.token:
+            # Find transaction by token (get most recent transaction for this link)
+            from app.controllers.tenant_link_controller import get_tenant_link
+            link = await get_tenant_link(db, payload.token)
+            if not link:
+                return ResponseHandler.error(
+                    message="Invalid activation token",
+                    error_details={"detail": "Token not found"}
+                )
+            
+            # Get the most recent transaction for this link
+            stmt = select(Transaction).filter(
+                Transaction.tenant_link_id == link.id
+            ).order_by(Transaction.created_at.desc())
+            result = await db.execute(stmt)
+            transaction = result.scalars().first()
+            
+            if not transaction:
+                return ResponseHandler.not_found(
+                    message="No transaction found for this activation link"
+                )
+            print(f"Found transaction {transaction.id} for Link {link.id}")
+        else:
+            return ResponseHandler.error(
+                message="Either transaction_id or token must be provided",
+                error_details={"detail": "Missing required parameter"}
+            )
         
         if not transaction:
             return ResponseHandler.not_found(message="Transaction not found")
+
+        # 1.1 Validate token if both provided (security check)
+        if payload.token and payload.transaction_id:
+            from app.controllers.tenant_link_controller import get_tenant_link
+            link = await get_tenant_link(db, payload.token)
+            if link:
+                # Verify this transaction belongs to this specific activation link
+                if transaction.tenant_link_id != link.id:
+                    return ResponseHandler.error(
+                        message="Transaction does not belong to this activation link",
+                        error_details={"detail": "Token mismatch"}
+                    )
+                print(f"Token validated: Transaction {transaction.id} belongs to Link {link.id}")
+            else:
+                return ResponseHandler.error(
+                    message="Invalid activation token",
+                    error_details={"detail": "Token not found"}
+                )
 
         # 2. Check Subscription (if transaction successful)
         subscription_status = "inactive"
@@ -741,13 +817,28 @@ async def get_payment_status(payload: PaymentStatusRequest, db: AsyncSession = D
 
 
 @router.get("/payment-history", response_model=APIResponse)
-async def get_payment_history(tenant_uuid: UUID, db: AsyncSession = Depends(get_db)):
+async def get_payment_history(
+    tenant_uuid: UUID, 
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
     """
     Fetch transaction history for a tenant.
+    If token is provided, history is filtered by that specific activation link.
     """
     try:
-        # Transaction already has relationship with Tenant
-        stmt = select(Transaction).join(Tenant).filter(Tenant.tenant_uuid == tenant_uuid).order_by(Transaction.created_at.desc())
+        # Base query joining Tenant
+        stmt = select(Transaction).join(Tenant).filter(Tenant.tenant_uuid == tenant_uuid)
+
+        # Optional filtering by Link IDs (if token provided)
+        if token:
+            from app.controllers.tenant_link_controller import get_tenant_link
+            link = await get_tenant_link(db, token)
+            if link:
+                stmt = stmt.filter(Transaction.tenant_link_id == link.id)
+                print(f"Filtering history by Link ID: {link.id}")
+
+        stmt = stmt.order_by(Transaction.created_at.desc())
         result = await db.execute(stmt)
         transactions = result.scalars().all()
         

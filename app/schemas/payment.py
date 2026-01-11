@@ -22,6 +22,7 @@ class PaymentVerificationRequest(BaseModel):
     taxable_amount: float
     subtotal: float
     tax_rate: float
+    request_code: Optional[str] = None
 
 class PaymentStatusRequest(BaseModel):
     tenant_id: Optional[UUID] = None
@@ -30,7 +31,8 @@ class PaymentStatusRequest(BaseModel):
     razorpay_payment_id: Optional[str] = None
     razorpay_order_id: Optional[str] = None
     razorpay_signature: Optional[str] = None
-    transaction_id: UUID
+    transaction_id: Optional[UUID] = None
+    token: Optional[str] = None
 
 class PaymentStatusResponse(BaseModel):
     valid: bool

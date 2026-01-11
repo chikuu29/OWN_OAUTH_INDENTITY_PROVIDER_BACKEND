@@ -36,9 +36,13 @@ class Transaction(Base):
     payment_method = Column(String(50), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Explicit link to the activation token used
+    tenant_link_id = Column(Integer, ForeignKey("tenant_links.id"), nullable=True)
 
     # Relationships
     tenant = relationship("Tenant", backref="transactions")
     subscription = relationship("Subscription", backref="transactions")
     order = relationship("Order", back_populates="transactions")
+    tenant_link = relationship("TenantLink", backref="transactions")
 
