@@ -168,6 +168,7 @@ async def send_subscription_confirmation_email(
     payment_info: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Send a subscription confirmation email with plan details, credentials, and optional invoice."""
+    print("Sending subscription confirmation email to", tenant_email)
     smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_username = os.getenv("SMTP_USERNAME", "")
@@ -175,7 +176,13 @@ async def send_subscription_confirmation_email(
     smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
     from_email = os.getenv("FROM_EMAIL", smtp_username)
     from_name = os.getenv("FROM_NAME", "Support")
-
+    print("SMTP credentials:", smtp_username, smtp_password)
+    print("SMTP server:", smtp_server)
+    print("SMTP port:", smtp_port)
+    print("SMTP use TLS:", smtp_use_tls)
+    print("From email:", from_email)
+    print("From name:", from_name)
+   
     if not smtp_username or not smtp_password:
         msg = "SMTP credentials are not configured"
         logger.error(msg)
