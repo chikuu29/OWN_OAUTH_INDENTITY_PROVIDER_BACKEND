@@ -9,16 +9,22 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install uv
+RUN pip install --no-cache-dir uv
 
-# Copy application
+# Copy dependency files ONLY (better cache)
+COPY pyproject.toml uv.lock ./
+
+# Install dependencies (prod only)
+RUN uv sync --no-dev
+
+# Copy application code
 COPY . .
 
 EXPOSE 8000
 
-# Run migrations ONCE and start Gunicorn
+# Run migrations ONCE and start server
 CMD ["sh", "-c", "alembic upgrade head && gunicorn -k uvicorn.workers.UvicornWorker --workers 2 --bind 0.0.0.0:8000 app.main:app"]
