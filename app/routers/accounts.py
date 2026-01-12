@@ -168,8 +168,8 @@ async def register_tanets(client: TenantCreate, background_tasks: BackgroundTask
         )
 
         # Build activation URL using DOMAIN_NAME env if available (send raw token)
-        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173/onboarding")
-        activation_url = f"{DOMAIN}/{raw_token}"
+        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173")
+        activation_url = f"{DOMAIN}/onboarding/{raw_token}"
 
         # Send activation email in background (will await coroutine when run)
         background_tasks.add_task(
@@ -341,8 +341,8 @@ async def resend_activation_link(token: str, background_tasks: BackgroundTasks, 
         )
 
         # 4. Build activation URL
-        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173/account")
-        activation_url = f"{DOMAIN}/setup/{new_raw_token}"
+        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173")
+        activation_url = f"{DOMAIN}/onboarding/{new_raw_token}"
 
         # 5. Send activation email in background
         background_tasks.add_task(
