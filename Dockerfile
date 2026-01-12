@@ -27,4 +27,4 @@ COPY . .
 EXPOSE 8000
 
 # Run migrations ONCE and start server
-CMD ["sh", "-c", "alembic upgrade head && gunicorn -k uvicorn.workers.UvicornWorker --workers 2 --bind 0.0.0.0:8000 app.main:app"]
+CMD ["sh", "-c", "uv run alembic upgrade head && uv run gunicorn -k uvicorn.workers.UvicornWorker --workers 2 --bind 0.0.0.0:8000 app.main:app"]
