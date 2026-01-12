@@ -168,8 +168,8 @@ async def register_tanets(client: TenantCreate, background_tasks: BackgroundTask
         )
 
         # Build activation URL using DOMAIN_NAME env if available (send raw token)
-        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173/account")
-        activation_url = f"{DOMAIN}/setup/{raw_token}"
+        DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173/onboarding")
+        activation_url = f"{DOMAIN}/{raw_token}"
 
         # Send activation email in background (will await coroutine when run)
         background_tasks.add_task(
@@ -279,6 +279,7 @@ async def validate_activation_link(token: str, db: AsyncSession = Depends(get_db
              return ResponseHandler.error(message="Invalid token structure", error_details={"detail": str(e)})
 
         data = [{
+            "request_id": link.id,
             "tenant_id": link.tenant_id,
             "request_type": link.request_type,
             "is_used": link.is_used,
@@ -421,9 +422,13 @@ async def get_tenant_profile(tenant_id: int = Query(...), db: AsyncSession = Dep
             select(TenantProfile).filter(TenantProfile.tenant_id == tenant_id)
         )
         profile = result.scalars().first()
+        # if not profile:
+        #     return ResponseHandler.not_found(message="Tenant profile not found")
         if not profile:
-            return ResponseHandler.not_found(message="Tenant profile not found")
-
+            return ResponseHandler.success(
+                message="Tenant profile fetched successfully", 
+                data=[]
+            )
         return ResponseHandler.success(
             message="Tenant profile fetched successfully", 
             data=[profile.to_dict()]
@@ -714,151 +719,41 @@ async def verify_payment(payload: PaymentVerificationRequest, background_tasks: 
         return ResponseHandler.error(message="Payment verification failed", error_details={"detail": str(e)})
 
 
-@router.post("/payment-status", response_model=APIResponse)
-async def get_payment_status(payload: PaymentStatusRequest, db: AsyncSession = Depends(get_db)):
+@router.post("/check-onboarding-status", response_model=APIResponse)
+async def check_onboarding_status(payload: PaymentStatusRequest, db: AsyncSession = Depends(get_db)):
     """
     Check the status of a payment transaction and its associated subscription.
     This is used by the frontend to poll after a Razorpay checkout.
     """
     try:
-        transaction = None
+        # Logic delegate to controller
+        # Passing tenant_uuid=None explicitely to match signature requirements if any
+        account_controller = AccountController(tenant_uuid=payload.tenant_uuid, db=db) 
         
-        # 1. Fetch Transaction - either by ID or by token
-        if payload.transaction_id:
-            stmt = select(Transaction).filter(Transaction.id == payload.transaction_id)
-            result = await db.execute(stmt)
-            transaction = result.scalars().first()
-        elif payload.token:
-            # Find transaction by token (get most recent transaction for this link)
-            from app.controllers.tenant_link_controller import get_tenant_link
-            link = await get_tenant_link(db, payload.token)
-            if not link:
-                return ResponseHandler.error(
-                    message="Invalid activation token",
-                    error_details={"detail": "Token not found"}
-                )
-            
-            # Get the most recent transaction for this link
-            stmt = select(Transaction).filter(
-                Transaction.tenant_link_id == link.id
-            ).order_by(Transaction.created_at.desc())
-            result = await db.execute(stmt)
-            transaction = result.scalars().first()
-            
-            if not transaction:
-                return ResponseHandler.not_found(
-                    message="No transaction found for this activation link"
-                )
-            print(f"Found transaction {transaction.id} for Link {link.id}")
-        else:
-            return ResponseHandler.error(
-                message="Either transaction_id or token must be provided",
-                error_details={"detail": "Missing required parameter"}
-            )
+        # Helper to extract request_id (TenantLink.id) from token if needed
+     
         
-        if not transaction:
-            return ResponseHandler.not_found(message="Transaction not found")
-
-        # 1.1 Validate token if both provided (security check)
-        if payload.token and payload.transaction_id:
-            from app.controllers.tenant_link_controller import get_tenant_link
-            link = await get_tenant_link(db, payload.token)
-            if link:
-                # Verify this transaction belongs to this specific activation link
-                if transaction.tenant_link_id != link.id:
-                    return ResponseHandler.error(
-                        message="Transaction does not belong to this activation link",
-                        error_details={"detail": "Token mismatch"}
-                    )
-                print(f"Token validated: Transaction {transaction.id} belongs to Link {link.id}")
-            else:
-                return ResponseHandler.error(
-                    message="Invalid activation token",
-                    error_details={"detail": "Token not found"}
-                )
-
-        # 2. Check Subscription (if transaction successful)
-        subscription_status = "inactive"
-        if transaction.status == TransactionStatus.SUCCESS:
-            sub_stmt = select(Subscription).filter(Subscription.tenant_id == transaction.tenant_id)
-            sub_result = await db.execute(sub_stmt)
-            subscription = sub_result.scalars().first()
-            if subscription:
-                subscription_status = subscription.status.value if hasattr(subscription.status, 'value') else str(subscription.status)
-
-        # 3. Formulate Response
-        status_map = {
-            TransactionStatus.SUCCESS: "SUCCESS",
-            TransactionStatus.PENDING: "PENDING",
-            TransactionStatus.FAILED: "FAILED"
-        }
-        
-        status_str = status_map.get(transaction.status, "PENDING")
-
-        response_data = PaymentStatusResponse(
-            valid=True,
-            status=status_str,
-            subscription_status=subscription_status,
-            razorpay_order_id=transaction.provider_order_id,
-            transaction_id=transaction.id,
-            amount=float(transaction.amount),
-            currency=transaction.currency,
-            message=f"Transaction is current {status_str}"
+        status_data = await account_controller.check_onboarding_status(
+            request_id=payload.request_id
         )
 
         return ResponseHandler.success(
-            message="Payment status fetched",
-            data=[response_data.dict()]
+            message=status_data.get("message", "Payment status fetched"),
+            data=[status_data]
         )
+
+    except ValueError as ve:
+        # Handle known errors from controller
+        error_content = ve.args[0] if ve.args else "Unknown error"
+        if isinstance(error_content, dict):
+             return ResponseHandler.error(message="Payment status validation failed", error_details=error_content)
+        return ResponseHandler.error(message=str(error_content), error_details={"detail": str(error_content)})
 
     except Exception as e:
         logger.error(f"Error fetching payment status: {str(e)}")
+        # import traceback
+        # traceback.print_exc()
         return ResponseHandler.error(message="Failed to fetch payment status", error_details={"detail": str(e)})
 
 
-@router.get("/payment-history", response_model=APIResponse)
-async def get_payment_history(
-    tenant_uuid: UUID, 
-    token: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """
-    Fetch transaction history for a tenant.
-    If token is provided, history is filtered by that specific activation link.
-    """
-    try:
-        # Base query joining Tenant
-        stmt = select(Transaction).join(Tenant).filter(Tenant.tenant_uuid == tenant_uuid)
 
-        # Optional filtering by Link IDs (if token provided)
-        if token:
-            from app.controllers.tenant_link_controller import get_tenant_link
-            link = await get_tenant_link(db, token)
-            if link:
-                stmt = stmt.filter(Transaction.tenant_link_id == link.id)
-                print(f"Filtering history by Link ID: {link.id}")
-
-        stmt = stmt.order_by(Transaction.created_at.desc())
-        result = await db.execute(stmt)
-        transactions = result.scalars().all()
-        
-        history = []
-        for txn in transactions:
-            history.append({
-                "id": str(txn.id),
-                "amount": float(txn.amount),
-                "status": txn.status.value if hasattr(txn.status, 'value') else str(txn.status),
-                "date": txn.created_at.strftime("%b %d, %Y %H:%M") if txn.created_at else "N/A",
-                "method": txn.payment_method or "N/A",
-                "provider_order_id": txn.provider_order_id
-            })
-            
-        return ResponseHandler.success(
-            message="Payment history fetched",
-            data=history
-        )
-    except Exception as e:
-        logger.error(f"Error fetching history: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return ResponseHandler.error(message="Failed to fetch payment history", error_details={"detail": str(e)})

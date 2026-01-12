@@ -12,14 +12,35 @@ from app.schemas.tanent import TenantCreate
 from app.schemas.auth_schemas import UserRegisterSchema
 from app.models.tenant import Tenant
 from app.models.auth import User, UserProfile
+from app.models.transactions import Transaction, TransactionStatus
+from app.models.subscriptions import Subscription
 
 
 pwd_context = CryptContext(schemes=["bcrypt"])
 
 
 class AccountController(BaseController):
-    def __init__(self, db: AsyncSession, background_tasks: Optional[BackgroundTasks] = None):
+    def __init__(self, db: AsyncSession, tenant_uuid: Optional[UUID] = None, background_tasks: Optional[BackgroundTasks] = None):
         super().__init__(db, background_tasks=background_tasks, logger_name='accounts')
+        self.tenant_uuid = tenant_uuid
+        self.tenant_id: Optional[int] = None
+
+    async def _ensure_tenant_loaded(self):
+        """Ensure tenant_id (int) is loaded from tenant_uuid"""
+        if self.tenant_id:
+            return
+
+        if not self.tenant_uuid:
+            raise ValueError("Tenant UUID not set in controller")
+
+        stmt = select(Tenant).filter(Tenant.tenant_uuid == self.tenant_uuid)
+        result = await self.db.execute(stmt)
+        tenant = result.scalars().first()
+        
+        if not tenant:
+            raise ValueError("Tenant not found")
+        
+        self.tenant_id = tenant.id
 
     async def create_tenant(self, client: TenantCreate):
         """Create a new tenant"""
@@ -146,3 +167,128 @@ class AccountController(BaseController):
         return root_user, default_password
 
 
+
+    async def check_onboarding_status(self, request_id: int):
+        """
+        Check the status of a payment transaction and its associated subscription.
+        Returns detailed history and status for frontend polling.
+        """
+        # Ensure we have the tenant loaded
+        await self._ensure_tenant_loaded()
+
+        # Determine a query to fetch related transactions for counting/history
+        transactions_query = None
+        transaction = None
+        link = None
+        
+        from app.models.tenant_link import TenantLink
+
+        # 1. Validate Request ID belongs to this tenant
+        if request_id:
+             # Find Link by ID
+             stmt = select(TenantLink).filter(TenantLink.id == request_id)
+             result = await self.db.execute(stmt)
+             link = result.scalars().first()
+             if not link:
+                 raise ValueError({"detail": "Invalid request ID"})
+             
+             # Check if link belongs to the current tenant (the one initialized in controller)
+             if str(link.tenant_id) != str(self.tenant_uuid):
+                 raise ValueError({"detail": "Request ID does not belong to this tenant"})
+        else:
+             raise ValueError({"detail": "Request ID is required"})
+
+        # 2. Fetch ALL transactions for this tenant
+        # User requirement: history of all attempts and success check across all.
+        transactions_query = select(Transaction).filter(Transaction.tenant_id == self.tenant_id).order_by(Transaction.created_at.desc())
+
+        # Execute the query to get the related transactions list
+        result = await self.db.execute(transactions_query)
+        transactions = result.scalars().all()
+
+        # Build history and count
+        history = []
+        success_count = 0
+        for txn in transactions:
+            history.append({
+                "id": str(txn.id),
+                "amount": float(txn.amount),
+                "status": txn.status.value if hasattr(txn.status, 'value') else str(txn.status),
+                "date": txn.created_at.strftime("%b %d, %Y %H:%M") if txn.created_at else "N/A",
+                "method": txn.payment_method or "N/A",
+                "provider_order_id": txn.provider_order_id
+            })
+            if txn.status == TransactionStatus.SUCCESS:
+                success_count += 1
+
+        transaction_count = len(transactions)
+        payment_completed = success_count > 0
+
+        
+        # Prioritize finding a SUCCESS transaction to return as the current status
+        # If multiple exist, the first one in the list (most recent) is fine.
+        # If none exist, fallback to the most recent attempt.
+        success_transaction = next((t for t in transactions if t.status == TransactionStatus.SUCCESS), None)
+        
+        transaction = success_transaction if success_transaction else (transactions[0] if transactions else None)
+        
+        if not transaction:
+             # No transactions yet?
+             return {
+                "valid": True,
+                "status": "PENDING", # Default
+                "subscription_status": "inactive",
+                "razorpay_order_id": None,
+                "transaction_id": None,
+                "amount": 0,
+                "currency": "INR",
+                "message": "No transactions found",
+                "transaction_count": 0,
+                "payment_completed": False,
+                "history": [],
+                "retry_allowed": True
+            }
+
+        # Check Subscription status if payment completed (look for THE subscription)
+        subscription_status = "inactive"
+        if payment_completed:
+            # Find the active subscription
+            from sqlalchemy import desc
+            # Ensure we use self.tenant_id here too!
+            sub_stmt = select(Subscription).filter(
+                Subscription.tenant_id == self.tenant_id
+            ).order_by(desc(Subscription.created_at))
+            sub_result = await self.db.execute(sub_stmt)
+            subscription = sub_result.scalars().first()
+            if subscription:
+                subscription_status = subscription.status.value if hasattr(subscription.status, 'value') else str(subscription.status)
+
+        status_map = {
+            TransactionStatus.SUCCESS: "SUCCESS",
+            TransactionStatus.PENDING: "PENDING",
+            TransactionStatus.FAILED: "FAILED"
+        }
+        status_str = status_map.get(transaction.status, "PENDING")
+
+        refund_eligible = False
+        message = f"Transaction is current {status_str}"
+        
+        if success_count > 1:
+             refund_eligible = True
+             message = f"Transaction is {status_str}. Note: Multiple successful payments detected; duplicate charges may be eligible for refund."
+
+        return {
+            "valid": True,
+            "status": status_str,
+            "subscription_status": subscription_status,
+            "razorpay_order_id": transaction.provider_order_id,
+            "transaction_id": str(transaction.id),
+            "amount": float(transaction.amount),
+            "currency": transaction.currency,
+            "message": message,
+            "transaction_count": transaction_count,
+            "payment_completed": payment_completed,
+            "history": history,
+            "retry_allowed": not payment_completed,
+            "refund_eligible": refund_eligible
+        }

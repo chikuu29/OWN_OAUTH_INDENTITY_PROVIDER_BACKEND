@@ -25,13 +25,8 @@ class PaymentVerificationRequest(BaseModel):
     request_code: Optional[str] = None
 
 class PaymentStatusRequest(BaseModel):
-    tenant_id: Optional[UUID] = None
-    tenant_uuid: Optional[UUID] = None
-    plan_uuid: Optional[UUID] = None
-    razorpay_payment_id: Optional[str] = None
-    razorpay_order_id: Optional[str] = None
-    razorpay_signature: Optional[str] = None
-    transaction_id: Optional[UUID] = None
+    tenant_uuid: Optional[str] = None
+    request_id:int
     token: Optional[str] = None
 
 class PaymentStatusResponse(BaseModel):
@@ -43,3 +38,4 @@ class PaymentStatusResponse(BaseModel):
     amount: float
     currency: str = "INR"
     message: Optional[str] = None
+    refund_eligible: Optional[bool] = False

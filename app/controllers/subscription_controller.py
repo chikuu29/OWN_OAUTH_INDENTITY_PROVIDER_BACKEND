@@ -181,7 +181,7 @@ class SubscriptionController(BaseController):
                  # 3.1 Create Root User for Tenant
                  try:
                      from app.controllers.account_controller import AccountController
-                     account_controller = AccountController(self.db)
+                     account_controller = AccountController(db=self.db)
                      root_user, root_password = await account_controller.create_root_user(
                          tenant_id=tenant.id,
                          tenant_email=tenant.tenant_email,
