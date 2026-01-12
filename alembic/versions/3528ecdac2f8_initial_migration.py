@@ -1,8 +1,8 @@
-"""Init
+"""Initial migration
 
-Revision ID: 2908eb885084
+Revision ID: 3528ecdac2f8
 Revises: 
-Create Date: 2026-01-04 15:48:15.157737
+Create Date: 2026-01-12 15:43:25.083867
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = '2908eb885084'
+revision: str = '3528ecdac2f8'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -97,15 +97,33 @@ def upgrade() -> None:
     sa.Column('last_name', sa.String(length=100), nullable=False),
     sa.Column('username', sa.String(length=100), nullable=False),
     sa.Column('email', sa.String(), nullable=False),
-    sa.Column('phone_number', sa.String(length=20), nullable=False),
+    sa.Column('phone_number', sa.String(length=20), nullable=True),
     sa.Column('hashed_password', sa.String(), nullable=False),
     sa.Column('tenant_id', sa.Integer(), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('is_root_user', sa.Boolean(), nullable=True),
+    sa.Column('is_superuser', sa.Boolean(), nullable=True),
     sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email'),
     sa.UniqueConstraint('username')
     )
     op.create_index(op.f('ix_auth_users_id'), 'auth_users', ['id'], unique=False)
+    op.create_table('orders',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.Integer(), nullable=False),
+    sa.Column('total_amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('tax_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('discount_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('currency', sa.String(length=3), nullable=True),
+    sa.Column('items', sa.JSON(), nullable=True),
+    sa.Column('provider_order_id', sa.String(length=100), nullable=True),
+    sa.Column('status', sa.Enum('PENDING', 'COMPLETED', 'CANCELLED', 'FAILED', name='orderstatus'), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('saas_app_pricing',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
     sa.Column('app_id', sa.UUID(), nullable=False),
@@ -141,12 +159,25 @@ def upgrade() -> None:
     sa.Column('currency', sa.Enum('INR', 'USD', 'EUR', 'GBP', name='currencyenum'), nullable=False),
     sa.Column('country', sa.Enum('IN', 'US', 'EU', 'UK', name='countryenum'), nullable=False),
     sa.Column('billing_cycle', sa.Enum('monthly', 'yearly', name='billingcycleenum'), nullable=False),
+    sa.Column('max_users', sa.Integer(), nullable=True),
+    sa.Column('max_branches', sa.Integer(), nullable=True),
+    sa.Column('storage_limit_gb', sa.Integer(), nullable=True),
     sa.Column('effective_from', sa.Date(), nullable=True),
     sa.Column('is_current', sa.Boolean(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.ForeignKeyConstraint(['plan_id'], ['saas_plans.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('plan_id', 'version', 'currency', 'country', name='uq_plan_version_region')
+    )
+    op.create_table('subscriptions',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.Integer(), nullable=False),
+    sa.Column('status', sa.Enum('active', 'grace', 'expired', 'cancelled', name='subscriptionstatus'), nullable=False),
+    sa.Column('auto_renew', sa.Boolean(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('tenant_links',
     sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -168,6 +199,7 @@ def upgrade() -> None:
     sa.Column('tax_id', sa.String(length=50), nullable=True),
     sa.Column('website', sa.String(length=255), nullable=True),
     sa.Column('phone', sa.String(length=20), nullable=True),
+    sa.Column('business_email', sa.String(length=255), nullable=True),
     sa.Column('address_line1', sa.String(length=255), nullable=True),
     sa.Column('address_line2', sa.String(length=255), nullable=True),
     sa.Column('city', sa.String(length=100), nullable=True),
@@ -226,20 +258,6 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['plan_version_id'], ['saas_plan_versions.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('plan_version_id', 'feature_id')
     )
-    op.create_table('subscriptions',
-    sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('tenant_id', sa.Integer(), nullable=False),
-    sa.Column('plan_version_id', sa.UUID(), nullable=False),
-    sa.Column('status', sa.Enum('active', 'grace', 'expired', 'cancelled', name='subscriptionstatus'), nullable=False),
-    sa.Column('start_date', sa.Date(), nullable=False),
-    sa.Column('end_date', sa.Date(), nullable=False),
-    sa.Column('auto_renew', sa.Boolean(), nullable=True),
-    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-    sa.ForeignKeyConstraint(['plan_version_id'], ['saas_plan_versions.id'], ),
-    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id')
-    )
     op.create_table('saas_subscription_billings',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('subscription_id', sa.UUID(), nullable=False),
@@ -256,9 +274,27 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['subscription_id'], ['subscriptions.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_table('subscription_cycles',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('subscription_id', sa.UUID(), nullable=False),
+    sa.Column('plan_version_id', sa.UUID(), nullable=False),
+    sa.Column('plan_code', sa.String(length=50), nullable=True),
+    sa.Column('start_date', sa.Date(), nullable=False),
+    sa.Column('end_date', sa.Date(), nullable=False),
+    sa.Column('status', sa.Enum('active', 'grace', 'expired', 'cancelled', name='subscriptionstatus'), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.ForeignKeyConstraint(['plan_version_id'], ['saas_plan_versions.id'], ),
+    sa.ForeignKeyConstraint(['subscription_id'], ['subscriptions.id'], ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('tenant_subscription_apps',
     sa.Column('subscription_id', sa.UUID(), nullable=False),
     sa.Column('app_id', sa.UUID(), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['app_id'], ['saas_apps.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['subscription_id'], ['subscriptions.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('subscription_id', 'app_id')
@@ -266,19 +302,49 @@ def upgrade() -> None:
     op.create_table('tenant_subscription_features',
     sa.Column('subscription_id', sa.UUID(), nullable=False),
     sa.Column('feature_id', sa.UUID(), nullable=False),
+    sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
     sa.ForeignKeyConstraint(['feature_id'], ['saas_features.id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['subscription_id'], ['subscriptions.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('subscription_id', 'feature_id')
+    )
+    op.create_table('transactions',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('tenant_id', sa.Integer(), nullable=False),
+    sa.Column('subscription_id', sa.UUID(), nullable=True),
+    sa.Column('order_id', sa.UUID(), nullable=True),
+    sa.Column('amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('currency', sa.String(length=3), nullable=True),
+    sa.Column('provider', sa.String(length=50), nullable=True),
+    sa.Column('provider_payment_id', sa.String(length=100), nullable=True),
+    sa.Column('provider_order_id', sa.String(length=100), nullable=True),
+    sa.Column('provider_signature', sa.String(length=200), nullable=True),
+    sa.Column('status', sa.Enum('SUCCESS', 'FAILED', 'PENDING', 'REFUNDED', name='transactionstatus'), nullable=True),
+    sa.Column('plan_code', sa.String(length=50), nullable=True),
+    sa.Column('billing_cycle', sa.String(length=20), nullable=True),
+    sa.Column('payment_details', sa.JSON(), nullable=True),
+    sa.Column('payment_method', sa.String(length=50), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+    sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
+    sa.Column('tenant_link_id', sa.Integer(), nullable=True),
+    sa.ForeignKeyConstraint(['order_id'], ['orders.id'], ),
+    sa.ForeignKeyConstraint(['subscription_id'], ['subscriptions.id'], ),
+    sa.ForeignKeyConstraint(['tenant_id'], ['tenants.id'], ),
+    sa.ForeignKeyConstraint(['tenant_link_id'], ['tenant_links.id'], ),
+    sa.PrimaryKeyConstraint('id')
     )
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
+    op.drop_table('transactions')
     op.drop_table('tenant_subscription_features')
     op.drop_table('tenant_subscription_apps')
+    op.drop_table('subscription_cycles')
     op.drop_table('saas_subscription_billings')
-    op.drop_table('subscriptions')
     op.drop_table('saas_plan_features')
     op.drop_table('saas_plan_apps')
     op.drop_index(op.f('ix_auth_user_profiles_id'), table_name='auth_user_profiles')
@@ -288,9 +354,11 @@ def downgrade() -> None:
     op.drop_table('tenant_profiles')
     op.drop_index(op.f('ix_tenant_links_token_hash'), table_name='tenant_links')
     op.drop_table('tenant_links')
+    op.drop_table('subscriptions')
     op.drop_table('saas_plan_versions')
     op.drop_table('saas_features')
     op.drop_table('saas_app_pricing')
+    op.drop_table('orders')
     op.drop_index(op.f('ix_auth_users_id'), table_name='auth_users')
     op.drop_table('auth_users')
     op.drop_index(op.f('ix_auth_roles_tenant_id'), table_name='auth_roles')
