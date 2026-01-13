@@ -160,6 +160,7 @@ async def send_tenant_registration_email(tenant_email: str, tenant_name: str, li
         body,
         html_body,
     )
+    print("Email send result:", result)
 
     return result
 async def send_subscription_confirmation_email(
