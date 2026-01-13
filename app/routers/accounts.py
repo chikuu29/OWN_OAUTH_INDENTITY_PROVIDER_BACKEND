@@ -158,7 +158,6 @@ async def register_tanets(client: TenantCreate, background_tasks: BackgroundTask
     try:
         account_controller = AccountController(db=db)
         db_client = await account_controller.create_tenant(client)
-
         # Create activation link valid for 24 hours (returns DB link and raw token)
         link, raw_token = await create_tenant_link(
             db=db, 
@@ -166,7 +165,7 @@ async def register_tanets(client: TenantCreate, background_tasks: BackgroundTask
             hours_valid=24,
             extra_payload=db_client.to_dict()
         )
-
+        print(f"Activation link created: {raw_token}")
         # Build activation URL using DOMAIN_NAME env if available (send raw token)
         DOMAIN = os.getenv("DOMAIN_NAME", "http://localhost:5173")
         activation_url = f"{DOMAIN}/onboarding/{raw_token}"
