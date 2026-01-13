@@ -104,6 +104,7 @@ async def send_tenant_registration_email(tenant_email: str, tenant_name: str, li
     Uses environment variables:
       SMTP_SERVER, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_USE_TLS, FROM_EMAIL, FROM_NAME
     """
+    print("Sending tenant registration email to", tenant_email)
     # Load configuration from env
     smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
@@ -112,7 +113,12 @@ async def send_tenant_registration_email(tenant_email: str, tenant_name: str, li
     smtp_use_tls = os.getenv("SMTP_USE_TLS", "true").lower() == "true"
     from_email = os.getenv("FROM_EMAIL", smtp_username)
     from_name = os.getenv("FROM_NAME", "Support")
-
+    print("SMTP credentials:", smtp_username, smtp_password)
+    print("SMTP server:", smtp_server)
+    print("SMTP port:", smtp_port)
+    print("SMTP use TLS:", smtp_use_tls)
+    print("From email:", from_email)
+    print("From name:", from_name)
     if not smtp_username or not smtp_password:
         msg = "SMTP credentials are not configured"
         logger.error(msg)
