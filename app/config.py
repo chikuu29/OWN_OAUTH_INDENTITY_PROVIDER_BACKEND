@@ -7,9 +7,9 @@ print(f"===== 🚀 {env.upper()} SERVER STARTED 🚀 =====")
 
 # Correct usage with f-string for interpolation
 load_dotenv(f'.env.{env}')
-print("===== Loaded .env file for environment: ", env, " =====")
-for key, value in os.environ.items():
-    print(f"{key}={value}")
+# print("===== Loaded .env file for environment: ", env, " =====")
+# for key, value in os.environ.items():
+#     print(f"{key}={value}")
 
 # Access environment variables
 print("DATABASE_URL:", os.getenv('DATABASE_URL'))

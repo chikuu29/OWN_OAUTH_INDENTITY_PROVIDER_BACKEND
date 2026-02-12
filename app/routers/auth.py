@@ -45,7 +45,7 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        user = await authenticateLoginUser(db, loginData)
+        user, auth_context = await authenticateLoginUser(db, loginData)
 
         # {
         #   "sub": "user123",         // Subject (User ID or Username)
@@ -64,8 +64,11 @@ async def login(
             "firstName": user.first_name,
             "lastName": user.last_name,
             "userFullName": f"{user.first_name} {user.last_name}",
-            "tanent_id": user.tenant_id,
+            "tenant_id": user.tenant_id,
             "tenant_name": user.tenant.tenant_name,
+            "subscription": auth_context.get("subscription"),
+            "roles": auth_context.get("roles"),
+            "permissions": auth_context.get("permissions"),
         }
 
         access_token, refresh_token, *_ = generate_oauth_tokens(payload)
@@ -233,9 +236,13 @@ async def create_role(role_data: RoleCreate, db: AsyncSession = Depends(get_db))
 
 @router.get("/roles/{tenant_id}", response_model=APIResponse)
 async def get_roles(tenant_id: UUID, db: AsyncSession = Depends(get_db)):
-    # Fetch tenant by tenant_id with roles
-    result = await db.execute(select(Role).filter(Role.tenant_id == tenant_id))
-    roles = result.scalars().unique().all()
+    # Fetch roles for the tenant identified by tenant_uuid
+    result = await db.execute(
+        select(Role)
+        .join(Tenant)
+        .filter(Tenant.tenant_uuid == tenant_id)
+    )
+    roles = result.scalars().all()
 
     # Check if tenant exists
     if not roles:

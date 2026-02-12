@@ -10,10 +10,12 @@ from fastapi import BackgroundTasks
 
 from app.schemas.tanent import TenantCreate
 from app.schemas.auth_schemas import UserRegisterSchema
-from app.models.tenant import Tenant
+from app.models.tenant import Tenant, Role, Permission
 from app.models.auth import User, UserProfile
 from app.models.transactions import Transaction, TransactionStatus
-from app.models.subscriptions import Subscription
+from app.models.subscriptions import Subscription, SubscriptionStatus, SubscriptionCycle, SubscriptionApp, SubscriptionFeature
+from app.models.plans import Plan, PlanVersion
+from app.models.apps import App
 
 
 pwd_context = CryptContext(schemes=["bcrypt"])
@@ -292,3 +294,66 @@ class AccountController(BaseController):
             "retry_allowed": not payment_completed,
             "refund_eligible": refund_eligible
         }
+
+
+    async def build_account_authorization_context(self):
+        """
+        Build an authorization context for the account.
+        Returns subscription info and permissions.
+        """
+        await self._ensure_tenant_loaded()
+
+        # 1. Fetch active subscription
+        from sqlalchemy import desc
+        from sqlalchemy.orm import selectinload
+        
+        sub_stmt = select(Subscription).filter(
+            Subscription.tenant_id == self.tenant_id,
+            Subscription.status == SubscriptionStatus.active
+        ).order_by(desc(Subscription.created_at)).options(
+            selectinload(Subscription.cycles).selectinload(SubscriptionCycle.plan_version).selectinload(PlanVersion.plan),
+            selectinload(Subscription.cycles).selectinload(SubscriptionCycle.plan_version).selectinload(PlanVersion.features),
+            selectinload(Subscription.subscribed_apps).selectinload(SubscriptionApp.app).selectinload(App.features),
+            selectinload(Subscription.subscribed_features).selectinload(SubscriptionFeature.feature)
+        )
+        
+        sub_result = await self.db.execute(sub_stmt)
+        subscription = sub_result.scalars().first()
+
+        context = {
+            "subscription": {
+                "plan": None,
+                "status": "inactive",
+                "features": []
+            },
+            "roles": [],
+            "permissions": []
+        }
+
+        if subscription:
+            context["subscription"]["status"] = subscription.status.value
+            if subscription.current_cycle and subscription.current_cycle.plan_version:
+                context["subscription"]["plan"] = subscription.current_cycle.plan_version.plan.plan_code
+            
+            # Use the existing property to get all features
+            features = subscription.all_active_features
+            context["subscription"]["features"] = [f.code for f in features]
+
+        # 2. Fetch Roles and Permissions for the tenant
+        stmt = select(Role).filter(Role.tenant_id == self.tenant_id).options(
+            selectinload(Role.permissions)
+        )
+        roles_result = await self.db.execute(stmt)
+        roles = roles_result.scalars().all()
+        
+        for role in roles:
+            if role.is_active:
+                context["roles"].append(role.role_name)
+                for perm in role.permissions:
+                    context["permissions"].append(perm.permission_name)
+        
+        # Deduplicate roles and permissions
+        context["roles"] = list(set(context["roles"]))
+        context["permissions"] = list(set(context["permissions"]))
+
+        return context

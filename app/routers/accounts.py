@@ -146,7 +146,7 @@ async def get_oauth_users(
         "page": page,
         "limit": limit,
         "pages": (total // limit) + (1 if total % limit != 0 else 0),  # Total pages
-        "data": [user.to_dict(include_tenat=False) for user in users],
+        "data": [user.to_dict(include_tenant=False) for user in users],
         "success": True,
     }
 
@@ -201,7 +201,7 @@ async def get_tenant(
 
     if tenant_id:
         # Fetch specific tenant
-        result = await db.execute(select(Tenant).where(Tenant.tenant_id == tenant_id))
+        result = await db.execute(select(Tenant).where(Tenant.tenant_uuid == tenant_id))
         tenant = result.scalars().first()
 
         if not tenant:
@@ -244,10 +244,10 @@ async def get_tenants_with_roles(db: AsyncSession = Depends(get_db)):
     # Transform data to desired structure
     tenants_with_roles = [
         {
-            "tenant_id": tenant.tenant_id,
+            "tenant_id": str(tenant.tenant_uuid),
             "name": tenant.tenant_name,
             "roles": [role.role_name for role in tenant.roles],
-            "isActive": tenant.tenant_active,
+            "isActive": tenant.is_active,
             "created_at": tenant.created_at
         }
         for tenant in tenants

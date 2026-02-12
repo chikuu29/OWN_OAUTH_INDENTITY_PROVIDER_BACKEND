@@ -11,7 +11,7 @@ class TenantLinkOut(BaseModel):
     created_at: Optional[datetime]
     expires_at: Optional[datetime]
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class ActivationComplete(BaseModel):

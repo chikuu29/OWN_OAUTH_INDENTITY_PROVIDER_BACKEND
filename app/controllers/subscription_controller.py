@@ -175,7 +175,7 @@ class SubscriptionController(BaseController):
             
             if tenant:
                  self.logger.info(f"Activating tenant {tenant.id} for subscription {subscription_id}")
-                 tenant.tenant_active = True
+                 tenant.is_active = True
                  tenant.status = TenantStatusEnum.active
                  
                  # 3.1 Create Root User for Tenant
