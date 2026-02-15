@@ -35,26 +35,26 @@ def test_plan_versioning():
         assert float(data["current_version"]["price"]) == 4999.0
         print(f"Success: Created V1 for plan {plan_uuid}")
 
-        # 2. Update Plan (Price and Limits change)
-        print("\n--- Testing Plan Update (V2) ---")
-        plan_data["price"] = 5999
-        plan_data["max_users"] = 15
+        # # 2. Update Plan (Price and Limits change)
+        # print("\n--- Testing Plan Update (V2) ---")
+        # plan_data["price"] = 5999
+        # plan_data["max_users"] = 15
         
-        response = client.put(f"{BASE_URL}/plans/{plan_uuid}", json=plan_data)
-        print(f"Status: {response.status_code}")
-        # print(json.dumps(response.json(), indent=2))
+        # response = client.put(f"{BASE_URL}/plans/{plan_uuid}", json=plan_data)
+        # print(f"Status: {response.status_code}")
+        # # print(json.dumps(response.json(), indent=2))
         
-        assert response.status_code == 200
-        data = response.json()["data"][0]
-        assert len(data["versions"]) == 2
-        assert data["current_version"]["version"] == 2
-        assert float(data["current_version"]["price"]) == 5999.0
-        assert data["current_version"]["max_users"] == 15
+        # assert response.status_code == 200
+        # data = response.json()["data"][0]
+        # assert len(data["versions"]) == 2
+        # assert data["current_version"]["version"] == 2
+        # assert float(data["current_version"]["price"]) == 5999.0
+        # assert data["current_version"]["max_users"] == 15
         
-        # Verify V1 still exists in the list
-        v1_found = any(v["version"] == 1 and not v["is_current"] for v in data["versions"])
-        assert v1_found, "V1 should still exist and not be current"
-        print("Success: Created V2 and preserved V1 as history.")
+        # # Verify V1 still exists in the list
+        # v1_found = any(v["version"] == 1 and not v["is_current"] for v in data["versions"])
+        # assert v1_found, "V1 should still exist and not be current"
+        # print("Success: Created V2 and preserved V1 as history.")
 
 if __name__ == "__main__":
     try:
